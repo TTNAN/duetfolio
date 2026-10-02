@@ -22,10 +22,11 @@ No sign-up, no data uploads. Your ledger lives in a local SQLite file. Dark/ligh
 
 1. Install Python ([official site](https://www.python.org/downloads/), tick **Add python.exe to PATH**)
 2. Click the green **Code** button → **Download ZIP**, extract
-3. Double-click **`start.bat`**, wait for the windows to finish, your dashboard opens in the browser
+3. Double-click **`start.bat`**, wait for dependencies (slow on first run), your dashboard opens in the browser
 
+> It opens [http://127.0.0.1:8000](http://127.0.0.1:8000) — the backend also serves the frontend, so **only one window** stays open. Close it to stop.
 > API docs only: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-> Manual frontend start: `cd frontend && npm install && npm run dev` (Node.js 18+)
+> Manual frontend dev: `cd frontend && npm install && npm run dev` (Node.js 18+, page then lives on `:5173`)
 
 ## Your first entry
 

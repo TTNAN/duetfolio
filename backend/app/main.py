@@ -64,3 +64,16 @@ async def optional_basic_auth(request: Request, call_next):
                 headers={"WWW-Authenticate": "Basic"},
             )
     return await call_next(request)
+
+
+# ---- serve the built frontend (single-window mode) ----
+# If frontend/dist exists (built via `npm run build`), the API server also
+# serves the dashboard UI, so the whole app runs in ONE process/window.
+# API routes are registered above and take precedence over static files.
+from pathlib import Path
+
+from fastapi.staticfiles import StaticFiles
+
+_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if (_DIST / "index.html").exists():
+    app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="frontend")
