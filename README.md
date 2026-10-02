@@ -1,80 +1,88 @@
+[English](README_en.md) | **简体中文**
+
 # duetfolio ◈
 
-A dual-market (US + HK) portfolio tracker — one home-currency number for holdings across both markets.
+同时持有美股和港股时，一个本币计价的组合总数。
 
-**[中文版](README_zh.md)**
+## 为什么做
 
-## Why
+主流组合追踪工具都是欧美视角。持仓横跨美股+港股、两种货币时，只能在脑子里换算。duetfolio 用 Yahoo Finance 拉双市场行情，按实时汇率折成你的本币（HKD/USD/CNY），并算出包含分红的真实年化收益（XIRR）。
 
-Most portfolio trackers are US/EU-centric. If your holdings span US and Hong Kong markets in two currencies, you end up converting in your head. duetfolio pulls both markets via Yahoo Finance, converts everything to your base currency (HKD/USD/CNY), and shows true annualized return (XIRR) including dividends.
+## 功能
 
-## Features
+- 📈 **双市场行情** — 美股代码直接写（`SGOV`），港股加 `.HK` 后缀（`3152.HK`），走 Yahoo Finance
+- 💱 **多币种估值** — 所有持仓按实时汇率（`HKD=X`）折成本币
+- 🧮 **XIRR** — 基于真实资金流水（买入/卖出/分红 + 期末市值）的年化收益，纯 Python 实现
+- 🧾 **交易流水是唯一真相** — 持仓永远由流水推导，不存快照；平均成本法
+- 🐳 **一键部署** — `docker compose up`
 
-- 📈 **Dual-market prices** — US tickers as-is (`SGOV`), HK tickers with `.HK` suffix (`3152.HK`), via Yahoo Finance
-- 💱 **Multi-currency valuation** — every holding converted to your base currency with live FX (`HKD=X`)
-- 🧮 **XIRR** — true annualized return from actual cash flows (buys, sells, dividends + terminal value), pure-Python implementation
-- 🧾 **Transactions as source of truth** — holdings are always derived, never stored; average-cost basis
-- 🐳 **One-command deploy** — `docker compose up`
+## 技术栈
 
-## Tech stack
-
-| Layer | Choice |
+| 层 | 选型 |
 |---|---|
-| Backend | FastAPI, SQLAlchemy 2.0 (async-ready), Alembic, Pydantic v2 |
-| Database | SQLite (dev) / PostgreSQL (prod, via `DATABASE_URL`) |
-| Market data | yfinance (Yahoo Finance) |
-| Frontend | React 18 + Vite, hand-rolled SVG charts (zero chart deps) |
-| Deploy | Docker Compose |
+| 后端 | FastAPI、SQLAlchemy 2.0、Alembic、Pydantic v2 |
+| 数据库 | SQLite（开发零配置）/ PostgreSQL（生产，`DATABASE_URL` 一键切换） |
+| 行情 | yfinance（Yahoo Finance） |
+| 前端 | React 18 + Vite，手写 SVG 图表（零图表依赖） |
+| 部署 | Docker Compose |
 
-## Quick start
+## 快速开始
 
-**Backend:**
+**后端：**
 ```bash
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload   # Alembic migrations run automatically on startup
-# API docs: http://localhost:8000/docs
+uvicorn app.main:app --reload   # 启动时自动跑 Alembic 迁移
+# API 文档: http://localhost:8000/docs
 ```
 
-**Frontend:**
+**前端：**
 ```bash
 cd frontend
 npm install
-npm run dev   # http://localhost:5173 (proxies /api to :8000)
+npm run dev   # http://localhost:5173（/api 代理到 :8000）
 ```
 
-**Docker:**
+**Docker：**
 ```bash
 docker compose up --build
-# web: http://localhost:5173  api: http://localhost:8000/docs
+# 前端: http://localhost:5173  API 文档: http://localhost:8000/docs
 ```
 
 ## API
 
-| Method | Path | Description |
+| 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/health` | Health check |
-| GET/POST | `/api/instruments` | List / create instruments |
-| DELETE | `/api/instruments/{id}` | Delete (+ all its transactions) |
-| GET/POST | `/api/transactions` | List / record buy, sell, dividend |
-| DELETE | `/api/transactions/{id}` | Delete |
-| GET | `/api/portfolio/summary?base=HKD` | Valuation, P&L, XIRR, holdings |
-| POST | `/api/prices/refresh` | Pull latest closes from Yahoo Finance |
+| GET | `/api/health` | 健康检查 |
+| GET/POST | `/api/instruments` | 上市/管理标的 |
+| DELETE | `/api/instruments/{id}` | 删除（含其全部流水） |
+| GET/POST | `/api/transactions` | 流水：买入 / 卖出 / 分红 |
+| DELETE | `/api/transactions/{id}` | 删除 |
+| GET | `/api/portfolio/summary?base=HKD` | 估值、盈亏、XIRR、持仓明细 |
+| POST | `/api/prices/refresh` | 从 Yahoo Finance 拉最新收盘价 |
 
-## Scope decisions (deliberate)
+## Scope 取舍（故意的）
 
-- **Single user, no auth** — auth is the next milestone, not this one.
-- **SQLite default** — zero-setup dev; `DATABASE_URL` switches to Postgres untouched.
-- **Average-cost basis** — simple, auditable; FIFO is a future option.
-- **Prices are a cache** — `price_snapshots` is a resilience layer, not canonical state.
-- **Yahoo HK tickers drop the leading zero** — e.g. 03152 (Bosera HKD Money Market ETF) is `3152.HK` on Yahoo, not `03152.HK`. Some small HK money-market ETFs aren't covered by Yahoo at all.
-- **XIRR annualizes aggressively** — a 4-day holding period produces extreme annualized numbers; that's the math, not a bug. XIRR is only reported when every holding has a fresh price.
+- **单用户、无登录** — 登录是下一个里程碑，不是这版的。
+- **默认 SQLite** — 开发零配置；`DATABASE_URL` 切 Postgres 无需改代码。
+- **平均成本法** — 简单可审计；FIFO 以后再说。
+- **行情是缓存** — `price_snapshots` 是韧性层，不是权威状态。
+- **Yahoo 的港股代码去前导零** — 比如 03152（博时港元货币 ETF）在 Yahoo 是 `3152.HK` 而不是 `03152.HK`；部分小港股货币 ETF Yahoo 根本没收录。
+- **XIRR 年化很激进** — 持有 4 天算出来的年化会非常极端，这是数学不是 bug；只有全部持仓都有新鲜行情时才报告 XIRR。
 
-## Disclaimer
+## 免责
 
-Yahoo Finance data is delayed (~15 min) and may be inaccurate. This is a personal tracking tool, not investment advice.
+Yahoo Finance 数据延迟约 15 分钟，可能不准。本工具仅用于个人追踪，不构成投资建议。
 
-## License
+## 许可证
 
 MIT
+
+## 请我喝杯咖啡
+
+如果这个项目帮你省了点时间，欢迎请我喝杯咖啡。☕
+
+| 支付宝 | 微信支付 |
+| ------ | -------- |
+| ![支付宝收款码](assets/alipay.jpg) | ![微信支付收款码](assets/wechat-pay.png) |
