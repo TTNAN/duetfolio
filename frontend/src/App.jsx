@@ -46,7 +46,7 @@ export default function App() {
         </nav>
       </header>
       <main className="main">
-        {tab === 'dashboard' && <Dashboard reloadKey={reloadKey} />}
+        {tab === 'dashboard' && <Dashboard reloadKey={reloadKey} goTab={setTab} />}
         {tab === 'transactions' && <Transactions onChange={reload} />}
         {tab === 'instruments' && <Instruments onChange={reload} />}
       </main>

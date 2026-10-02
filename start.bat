@@ -1,20 +1,33 @@
 @echo off
-REM duetfolio 一键启动（Windows）
-REM 双击运行：自动创建虚拟环境、安装依赖、启动后端
+REM duetfolio 一键启动（Windows）：后端 + 前端，浏览器打开仪表盘
+REM 双击运行即可
+
 cd /d "%~dp0backend"
 if not exist .venv (
-  echo [1/3] 正在创建虚拟环境...
+  echo [backend 1/3] 正在创建虚拟环境...
   python -m venv .venv
 )
 call .venv\Scripts\activate.bat
-echo [2/3] 正在安装依赖（首次较慢）...
+echo [backend 2/3] 正在安装依赖（首次较慢）...
 pip install -q -r requirements.txt
-echo [3/3] 正在启动 duetfolio 后端...
+echo [backend 3/3] 正在启动后端（新窗口）...
+start "duetfolio-backend" cmd /k "call .venv\Scripts\activate.bat && uvicorn app.main:app --reload"
+
+cd /d "%~dp0frontend"
+if not exist node_modules (
+  echo [frontend 1/2] 正在安装依赖（首次较慢，需要 Node.js 18+）...
+  call npm install
+)
+echo [frontend 2/2] 正在启动前端（新窗口）...
+start "duetfolio-frontend" cmd /k "npm run dev"
+
 echo.
-echo 启动成功后，浏览器打开 http://127.0.0.1:8000/docs
-echo 如需东方财富实时行情，关闭本窗口，用 PowerShell 执行：
+echo 等 10 秒左右，浏览器会自动打开仪表盘：
+echo   http://127.0.0.1:5173
+echo.
+echo API 文档： http://127.0.0.1:8000/docs
+echo 如需东方财富实时行情：关闭两个窗口，改用 PowerShell：
 echo   $env:MARKET_PROVIDER="eastmoney"
 echo   .\start.bat
-echo.
-uvicorn app.main:app --reload
-pause
+timeout /t 10 /nobreak >nul
+start http://127.0.0.1:5173

@@ -21,10 +21,10 @@ Say you bought a Treasury ETF in the US and a money-market ETF in Hong Kong — 
 You only need Python ([download here](https://www.python.org/downloads/), tick **Add python.exe to PATH** during install), then:
 
 1. Click the green **Code** button on this repo → **Download ZIP**, extract it
-2. Double-click **`start-all.bat`** in the extracted folder and wait for both windows (backend + frontend)
-3. Open [http://127.0.0.1:5173](http://127.0.0.1:5173) in your browser — that's your portfolio dashboard: total value, P&L, XIRR, allocation donut
+2. Double-click **`start.bat`** in the extracted folder and wait for both windows (backend + frontend)
+3. Your browser will open [http://127.0.0.1:5173](http://127.0.0.1:5173) automatically — that's your portfolio dashboard: total value, P&L, XIRR, allocation donut
 
-> Backend API docs only: double-click `start.bat`, then open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+> Backend API docs only: after starting, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) directly
 > Manual frontend start: `cd frontend && npm install && npm run dev` (needs Node.js 18+)
 
 If the page loads, you're up. Now let's record your first holding.

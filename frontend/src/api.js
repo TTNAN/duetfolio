@@ -17,6 +17,8 @@ export const api = {
   health: () => req('/health'),
   summary: (base = 'HKD') => req(`/portfolio/summary?base=${base}`),
   history: (base = 'HKD') => req(`/portfolio/history?base=${base}`),
+  searchInstruments: (q) => req(`/instruments/search?q=${encodeURIComponent(q)}`),
+  updateTransaction: (id, body) => req(`/transactions/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   instruments: () => req('/instruments'),
   addInstrument: (body) => req('/instruments', { method: 'POST', body: JSON.stringify(body) }),
   deleteInstrument: (id) => req(`/instruments/${id}`, { method: 'DELETE' }),

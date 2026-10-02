@@ -7,6 +7,29 @@ export default function Instruments({ onChange }) {
   const [list, setList] = useState([]);
   const [err, setErr] = useState('');
   const [form, setForm] = useState({ symbol: '', name: '', market: 'US', currency: 'USD', asset_type: 'etf' });
+  const [sq, setSq] = useState('');
+  const [hits, setHits] = useState(null);
+  const [searching, setSearching] = useState(false);
+
+  const doSearch = async (e) => {
+    e && e.preventDefault();
+    if (!sq.trim() || searching) return;
+    setSearching(true);
+    setHits(null);
+    try {
+      setHits(await api.searchInstruments(sq.trim()));
+    } catch (e2) {
+      setHits([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pick = (h) => {
+    setForm((f) => ({ ...f, symbol: h.symbol, name: h.name, market: h.market, currency: h.currency }));
+    setHits(null);
+    setSq('');
+  };
 
   const load = async () => {
     try { setList(await api.instruments()); }
@@ -43,6 +66,29 @@ export default function Instruments({ onChange }) {
     <div className="grid2">
       <div className="card">
         <h3>{t.addInst}</h3>
+        <form onSubmit={doSearch} className="form" style={{ marginBottom: 4 }}>
+          <div className="row2" style={{ alignItems: 'end' }}>
+            <label style={{ flex: 1 }}>{t.searchPh}
+              <input value={sq} onChange={(e) => setSq(e.target.value)} placeholder="03152 / SGOV / 腾讯" />
+            </label>
+            <button className="btn" type="submit" disabled={searching || !sq.trim()}>
+              {searching ? t.searching : t.search}
+            </button>
+          </div>
+        </form>
+        {hits && (
+          <div className="search-hits">
+            {hits.length === 0 && <div className="muted small">{t.searchNoHit}</div>}
+            {hits.map((h, i) => (
+              <button key={i} className="hit" onClick={() => pick(h)}>
+                <b>{h.symbol}</b>
+                <span className="muted">{h.name}</span>
+                <span className="pill">{h.market} · {h.currency}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {!hits && <div className="muted small" style={{ marginBottom: 8 }}>{t.searchHint}</div>}
         <form onSubmit={submit} className="form">
           <label>{t.fSymbol}
             <input required value={form.symbol} onChange={set('symbol')} placeholder={t.symPh} />

@@ -1,5 +1,6 @@
 """Pydantic v2 request/response schemas."""
 from datetime import date, datetime
+from datetime import date as date_cls  # alias: TransactionUpdate.date shadows `date`
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,6 +49,18 @@ class TransactionOut(BaseModel):
     symbol: Optional[str] = None  # joined for display
 
 
+class TransactionUpdate(BaseModel):
+    """Inline edit: every field optional. fx_to_hkd is KEPT unless
+    refetch_fx is set — then it's re-fetched for the (possibly new) date."""
+    type: Optional[Literal["buy", "sell", "dividend"]] = None
+    quantity: Optional[float] = Field(default=None, gt=0)
+    price: Optional[float] = Field(default=None, ge=0)
+    fee: Optional[float] = Field(default=None, ge=0)
+    date: Optional[date_cls] = None
+    note: Optional[str] = None
+    refetch_fx: bool = False
+
+
 class HoldingOut(BaseModel):
     instrument_id: int
     symbol: str
@@ -84,3 +97,12 @@ class PortfolioSummary(BaseModel):
 class HistoryPoint(BaseModel):
     date: date
     value: Optional[float] = None  # None when FX gaps make this day unconvertible
+
+
+class InstrumentCandidate(BaseModel):
+    """One hit from the symbol search box (Yahoo / East Money suggest)."""
+    symbol: str       # Yahoo-format ticker, e.g. "3152.HK", "SGOV"
+    name: str
+    market: Literal["US", "HK"]
+    currency: str     # "USD" | "HKD"
+    source: str       # "yahoo" | "eastmoney"

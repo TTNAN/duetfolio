@@ -49,6 +49,37 @@ export default function Transactions({ onChange }) {
     onChange && onChange();
   };
 
+  const [editing, setEditing] = useState(null); // transaction id in edit mode
+  const [eform, setEform] = useState({});
+  const [refetchFx, setRefetchFx] = useState(false);
+
+  const startEdit = (tx) => {
+    setEditing(tx.id);
+    setEform({ type: tx.type, quantity: tx.quantity, price: tx.price, fee: tx.fee, date: tx.date, note: tx.note || '' });
+    setRefetchFx(false);
+    setErr('');
+  };
+
+  const eset = (k) => (e) => setEform({ ...eform, [k]: e.target.value });
+
+  const saveEdit = async (id) => {
+    setErr('');
+    try {
+      await api.updateTransaction(id, {
+        type: eform.type,
+        quantity: Number(eform.quantity),
+        price: Number(eform.price),
+        fee: Number(eform.fee || 0),
+        date: eform.date,
+        note: eform.note,
+        refetch_fx: refetchFx,
+      });
+      setEditing(null);
+      await load();
+      onChange && onChange();
+    } catch (e2) { setErr(String(e2.message || e2)); }
+  };
+
   return (
     <div className="grid2">
       <div className="card">
@@ -88,12 +119,50 @@ export default function Transactions({ onChange }) {
           <thead><tr><th>{t.hth.date}</th><th>{t.hth.symbol}</th><th>{t.hth.type}</th><th>{t.hth.qty}</th><th>{t.hth.price}</th><th>{t.hth.fee}</th><th></th></tr></thead>
           <tbody>
             {txns.map((tx) => (
-              <tr key={tx.id}>
-                <td>{tx.date}</td><td><b>{tx.symbol}</b></td>
-                <td><span className={`pill ${tx.type}`}>{t.txnTypes[tx.type] || tx.type}</span></td>
-                <td>{tx.quantity}</td><td>{tx.price}</td><td>{tx.fee}</td>
-                <td><button className="link danger" onClick={() => remove(tx.id)}>{t.del}</button></td>
-              </tr>
+              editing === tx.id ? (
+                <>
+                  <tr key={tx.id} className="editing">
+                    <td><input type="date" value={eform.date} onChange={eset('date')} /></td>
+                    <td><b>{tx.symbol}</b></td>
+                    <td>
+                      <select value={eform.type} onChange={eset('type')}>
+                        <option value="buy">{t.txnTypes.buy}</option>
+                        <option value="sell">{t.txnTypes.sell}</option>
+                        <option value="dividend">{t.txnTypes.dividend}</option>
+                      </select>
+                    </td>
+                    <td><input type="number" step="any" min="0" value={eform.quantity} onChange={eset('quantity')} /></td>
+                    <td><input type="number" step="any" min="0" value={eform.price} onChange={eset('price')} /></td>
+                    <td><input type="number" step="any" min="0" value={eform.fee} onChange={eset('fee')} /></td>
+                    <td>
+                      <button className="link" onClick={() => saveEdit(tx.id)}>{t.save}</button>
+                      {' · '}
+                      <button className="link muted" onClick={() => setEditing(null)}>{t.cancel}</button>
+                    </td>
+                  </tr>
+                  <tr key={`${tx.id}-fx`} className="fxrow">
+                    <td colSpan="7">
+                      <span className="muted small">{t.fxSaved}：{tx.fx_to_hkd ?? '—'}</span>
+                      {' · '}
+                      <label className="muted small">
+                        <input type="checkbox" checked={refetchFx} onChange={(e) => setRefetchFx(e.target.checked)} />
+                        {' '}{t.refetchFx}
+                      </label>
+                    </td>
+                  </tr>
+                </>
+              ) : (
+                <tr key={tx.id}>
+                  <td>{tx.date}</td><td><b>{tx.symbol}</b></td>
+                  <td><span className={`pill ${tx.type}`}>{t.txnTypes[tx.type] || tx.type}</span></td>
+                  <td>{tx.quantity}</td><td>{tx.price}</td><td>{tx.fee}</td>
+                  <td>
+                    <button className="link" onClick={() => startEdit(tx)}>{t.edit}</button>
+                    {' · '}
+                    <button className="link danger" onClick={() => remove(tx.id)}>{t.del}</button>
+                  </td>
+                </tr>
+              )
             ))}
             {txns.length === 0 && <tr><td colSpan="7" className="muted">{t.noTxns}</td></tr>}
           </tbody>

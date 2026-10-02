@@ -31,10 +31,10 @@ HTTP_TIMEOUT = 15
 _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 
-def _http_get_json(url: str) -> dict | None:
+def _http_get_json(url: str, timeout: int = HTTP_TIMEOUT) -> dict | None:
     try:
         req = urllib.request.Request(url, headers=_UA)
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8", errors="ignore"))
     except Exception:
         return None
@@ -272,3 +272,82 @@ def refresh_all(db: Session) -> dict:
         updated.append(inst.symbol)
     db.commit()
     return {"provider": provider.name, "updated": updated, "failed": failed}
+
+
+# ---- symbol search (for the "add instrument" flow) ----
+_US_EXCHANGES = {"NMS", "NYQ", "NGM", "ASE", "NAS", "NYS", "PCX", "BTS"}
+_HK_EXCHANGES = {"HKG"}
+_SEARCH_TIMEOUT = 8  # interactive; fail fast rather than hang the UI
+
+
+def _yahoo_search(query: str) -> list[dict]:
+    """Yahoo Finance search API (no key). Filters to US/HK equity+ETF."""
+    url = ("https://query1.finance.yahoo.com/v1/finance/search?q="
+           + urllib.parse.quote(query))
+    data = _http_get_json(url, timeout=_SEARCH_TIMEOUT) or {}
+    out = []
+    for q in data.get("quotes") or []:
+        if q.get("quoteType") not in ("EQUITY", "ETF"):
+            continue
+        ex = (q.get("exchange") or "").upper()
+        sym = (q.get("symbol") or "").upper()
+        name = q.get("longname") or q.get("shortname") or sym
+        if ex in _US_EXCHANGES and sym:
+            out.append({"symbol": sym, "name": name, "market": "US",
+                        "currency": "USD", "source": "yahoo"})
+        elif ex in _HK_EXCHANGES and sym:
+            # normalize to the app's Yahoo convention: 03152 -> 3152.HK
+            base = sym[:-3] if sym.endswith(".HK") else sym
+            norm = (base.lstrip("0") or "0") + ".HK"
+            out.append({"symbol": norm, "name": name, "market": "HK",
+                        "currency": "HKD", "source": "yahoo"})
+    return out
+
+
+def _eastmoney_search(query: str) -> list[dict]:
+    """East Money suggest API. Keeps HK (MktNum 116) and US (UsStock) only —
+    mainland funds/A-shares are outside this app's scope."""
+    url = ("https://searchapi.eastmoney.com/api/suggest/get?input="
+           + urllib.parse.quote(query) + "&type=14")
+    data = _http_get_json(url, timeout=_SEARCH_TIMEOUT) or {}
+    items = (data.get("QuotationCodeTable") or {}).get("Data") or []
+    out = []
+    for i in items:
+        if i.get("MktNum") == "116":
+            code = str(i.get("Code") or "").lstrip("0") or "0"
+            out.append({"symbol": f"{code}.HK",
+                        "name": str(i.get("Name") or ""),
+                        "market": "HK", "currency": "HKD",
+                        "source": "eastmoney"})
+        elif i.get("Classify") == "UsStock":
+            out.append({"symbol": str(i.get("Code") or "").upper(),
+                        "name": str(i.get("Name") or ""),
+                        "market": "US", "currency": "USD",
+                        "source": "eastmoney"})
+    return out
+
+
+def search_instruments(query: str, limit: int = 8) -> list[dict]:
+    """Candidate instruments for the add-instrument search box.
+
+    Queries Yahoo and East Money concurrently, dedupes by normalized
+    symbol (Yahoo first). Any single source failing degrades to the other.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    query = (query or "").strip()
+    if not query:
+        return []
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        yh = ex.submit(_yahoo_search, query)
+        em = ex.submit(_eastmoney_search, query)
+        results = (yh.result() or []) + (em.result() or [])
+    seen, out = set(), []
+    for r in results:
+        if r["symbol"] in seen:
+            continue
+        seen.add(r["symbol"])
+        out.append(r)
+        if len(out) >= limit:
+            break
+    return out

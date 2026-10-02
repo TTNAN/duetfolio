@@ -184,3 +184,46 @@ def test_history_fx_gap_gives_none(db):
     finally:
         from tests.conftest import pf as _pf  # restore fixed rates
         _pf._fx_rates = lambda: {"HKD": 1.0, "USD": 7.85, "CNY": 1.09}
+
+
+def test_update_txn_keeps_fx_unless_refetch(db):
+    """Inline edit preserves fx_to_hkd; refetch_fx re-rates at the new date."""
+    from datetime import date as d
+    from fastapi.testclient import TestClient
+    from app.main import app
+    import app.api.routes as routes
+
+    a = add_instrument(db, "AAA", "USD", "US")
+    add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 1), fx=7.80)
+
+    # bypass TestClient's own DB: call the route function with our session
+    t = db.query(__import__("app.models.models", fromlist=["Transaction"]).Transaction).first()
+    body = __import__("app.schemas.schemas", fromlist=["TransactionUpdate"]).TransactionUpdate(
+        price=101.0)
+    out = routes.update_transaction(t.id, body, db)
+    assert out.price == 101.0 and out.fx_to_hkd == 7.80  # kept
+
+    body2 = __import__("app.schemas.schemas", fromlist=["TransactionUpdate"]).TransactionUpdate(
+        date=d(2026, 2, 1), refetch_fx=True)
+    out2 = routes.update_transaction(t.id, body2, db)
+    assert out2.date == d(2026, 2, 1)
+    # refetched via mocked _fx_rates -> 7.85 (module-level mock in conftest)
+    assert out2.fx_to_hkd == 7.85
+
+
+def test_update_txn_oversell_rejected(db):
+    """Editing a buy down below sold quantity is rejected with 400."""
+    from datetime import date as d
+    from fastapi import HTTPException
+    import app.api.routes as routes
+
+    a = add_instrument(db, "AAA", "USD", "US")
+    add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 1))
+    add_txn(db, a, "sell", 6, 110.0, date=d(2026, 2, 1))
+    t = db.query(__import__("app.models.models", fromlist=["Transaction"]).Transaction).filter_by(type="buy").first()
+    TU = __import__("app.schemas.schemas", fromlist=["TransactionUpdate"]).TransactionUpdate
+    try:
+        routes.update_transaction(t.id, TU(quantity=5.0), db)
+        raise AssertionError("should have raised")
+    except HTTPException as e:
+        assert e.status_code == 400

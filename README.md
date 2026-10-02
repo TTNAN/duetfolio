@@ -21,10 +21,10 @@
 只需要装一个 Python（[官网下载](https://www.python.org/downloads/)，安装时勾选 **Add python.exe to PATH**），然后：
 
 1. 点本仓库绿色的 **Code** 按钮 → **Download ZIP**，解压
-2. 双击解压出来的 **`start-all.bat`**，等两个窗口都启动好（后端 + 前端）
-3. 浏览器打开 [http://127.0.0.1:5173](http://127.0.0.1:5173) —— 这就是你的组合仪表盘：总市值、盈亏、XIRR、持仓 donut 图
+2. 双击解压出来的 **`start.bat`**，等两个窗口都启动好（后端 + 前端）
+3. 浏览器会自动打开 [http://127.0.0.1:5173](http://127.0.0.1:5173) —— 这就是你的组合仪表盘：总市值、盈亏、XIRR、持仓 donut 图
 
-> 只要后端 API 文档：双击 `start.bat`，再打开 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+> 只要后端 API 文档：启动后直接打开 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 > 前端手动启动：`cd frontend && npm install && npm run dev`（需要 Node.js 18+）
 
 看到页面就说明启动成功了。下面开始记第一笔账。

@@ -58,7 +58,7 @@ function HistoryChart({ base }) {
   );
 }
 
-export default function Dashboard({ reloadKey }) {
+export default function Dashboard({ reloadKey, goTab }) {
   const { t } = useLang();
   const [data, setData] = useState(null);
   const [base, setBase] = useState('HKD');
@@ -95,6 +95,29 @@ export default function Dashboard({ reloadKey }) {
 
   if (loading) return <div className="card">{t.histLoading}</div>;
   if (err && !data) return <div className="card error">{err}</div>;
+
+  // empty state: 3-step onboarding instead of an empty table
+  if (data.holdings.length === 0) {
+    const steps = [
+      { n: '1', title: t.step1, desc: t.step1d, act: () => goTab && goTab('instruments') },
+      { n: '2', title: t.step2, desc: t.step2d, act: () => goTab && goTab('transactions') },
+      { n: '3', title: t.step3, desc: t.step3d, act: onRefresh },
+    ];
+    return (
+      <div className="card empty-hero">
+        <h3>{t.emptyTitle}</h3>
+        <div className="steps">
+          {steps.map((s) => (
+            <button key={s.n} className="step" onClick={s.act}>
+              <span className="step-n">{s.n}</span>
+              <span className="step-t">{s.title}</span>
+              <span className="step-d muted">{s.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const pnlTone = (data.total_pnl ?? 0) >= 0 ? 'pos' : 'neg';
   const donutItems = data.holdings
