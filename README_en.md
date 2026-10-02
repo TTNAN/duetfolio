@@ -10,7 +10,7 @@ Most portfolio trackers are US/EU-centric. If your holdings span US and Hong Kon
 
 ## Features
 
-- 📈 **Dual-market prices** — US tickers as-is (`SGOV`), HK tickers with `.HK` suffix (`3152.HK`), via Yahoo Finance
+- 📈 **Dual-market prices** — US tickers as-is (`AAPL`), HK tickers with `.HK` suffix (`00700.HK`), via Yahoo Finance
 - 💱 **Multi-currency valuation** — every holding converted to your base currency with live FX (`HKD=X`)
 - 🧮 **XIRR** — true annualized return from actual cash flows (buys, sells, dividends + terminal value), pure-Python implementation
 - 🧾 **Transactions as source of truth** — holdings are always derived, never stored; average-cost basis
