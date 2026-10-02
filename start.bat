@@ -1,33 +1,49 @@
 @echo off
-chcp 65001 >nul
-REM duetfolio 一键启动（Windows）：后端 + 前端，浏览器打开仪表盘
-REM 双击运行即可
+REM duetfolio one-click launcher (Windows): starts backend + frontend, opens the dashboard.
+REM Just double-click this file. (English-only on purpose: zero encoding issues on any Windows.)
 
 cd /d "%~dp0backend"
+where python >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Python not found on PATH.
+  echo   Install Python 3.10+ from https://www.python.org/downloads/
+  echo   and tick "Add python.exe to PATH" during installation.
+  echo   Then double-click start.bat again.
+  pause
+  exit /b 1
+)
 if not exist .venv (
-  echo [backend 1/3] 正在创建虚拟环境...
+  echo [backend 1/3] Creating virtual environment...
   python -m venv .venv
 )
 call .venv\Scripts\activate.bat
-echo [backend 2/3] 正在安装依赖（首次较慢）...
+echo [backend 2/3] Installing dependencies (slow on first run)...
 pip install -q -r requirements.txt
-echo [backend 3/3] 正在启动后端（新窗口）...
+echo [backend 3/3] Starting backend in a new window...
 start "duetfolio-backend" cmd /k "call .venv\Scripts\activate.bat && uvicorn app.main:app --reload"
 
 cd /d "%~dp0frontend"
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] Node.js not found on PATH.
+  echo   Install Node.js 18+ from https://nodejs.org/
+  echo   Then double-click start.bat again.
+  pause
+  exit /b 1
+)
 if not exist node_modules (
-  echo [frontend 1/2] 正在安装依赖（首次较慢，需要 Node.js 18+）...
+  echo [frontend 1/2] Installing dependencies (slow on first run, needs Node.js 18+)...
   call npm install
 )
-echo [frontend 2/2] 正在启动前端（新窗口）...
+echo [frontend 2/2] Starting frontend in a new window...
 start "duetfolio-frontend" cmd /k "npm run dev"
 
 echo.
-echo 等 10 秒左右，浏览器会自动打开仪表盘：
+echo Waiting ~10 seconds, then opening the dashboard:
 echo   http://127.0.0.1:5173
 echo.
-echo API 文档： http://127.0.0.1:8000/docs
-echo 如需东方财富实时行情：关闭两个窗口，改用 PowerShell：
+echo API docs: http://127.0.0.1:8000/docs
+echo For East Money real-time quotes, close both windows and run in PowerShell instead:
 echo   $env:MARKET_PROVIDER="eastmoney"
 echo   .\start.bat
 timeout /t 10 /nobreak >nul
