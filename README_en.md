@@ -1,105 +1,137 @@
-[简体中文](README.md) | **English**
+**English** | [简体中文](README.md)
 
 # duetfolio ◈
 
-**Hold both US and HK stocks? This tool tells you exactly how much you've made.**
+**Holding both US and HK stocks? One glance tells you the total P&L in your home currency.**
 
 ![duetfolio dashboard](assets/dashboard.png)
 
-Say you bought a Treasury ETF in the US and a money-market ETF in Hong Kong — two markets, two currencies, and every day you wonder "in HKD terms, am I up or down overall?" Doing that conversion in your head gets old. duetfolio pulls quotes from both markets, converts everything into your chosen base currency (HKD/USD/CNY), and gives you one number: total value, total P&L, and true annualized return including dividends.
+---
 
-## What it does for you
+## What it is
 
-- 📈 **US + HK in one place** — see holdings across both markets without switching apps
-- 💱 **Auto-converted to your currency** — USD and HKD positions converted at live FX rates into HKD (or USD/CNY)
-- 🧮 **True annualized return (XIRR)** — not just "up X%", but an annualized rate computed from the actual timing and amounts of every buy, sell and dividend
-- 🧾 **Holdings derived from your trade log** — you just record "bought N shares at $X on this date"; quantities and average cost are computed automatically, no spreadsheet maintenance
-- 🔌 **Two quote sources** — Yahoo Finance by default (zero setup, ~15min delayed); switchable to East Money push2 (closer to real-time, no API key)
+duetfolio is a portfolio tracker that runs on your own computer, built for people who hold **both US and Hong Kong stocks**:
 
-## Quick start (Windows, beginner-friendly)
+- Both markets' positions on one screen — no more switching between broker apps
+- USD and HKD holdings auto-converted into your base currency (HKD / USD / CNY)
+- Every buy, sell and dividend timestamped and sized into a true **annualized return (XIRR)** — not just "up a few percent"
 
-You only need Python ([download here](https://www.python.org/downloads/), tick **Add python.exe to PATH** during install), then:
+No sign-up, no data uploads. Your ledger lives in a local SQLite file. Dark/light mode toggle top-right.
 
-1. Click the green **Code** button on this repo → **Download ZIP**, extract it
-2. Double-click **`start.bat`** in the extracted folder and wait for both windows (backend + frontend)
-3. Your browser will open [http://127.0.0.1:5173](http://127.0.0.1:5173) automatically — that's your portfolio dashboard: total value, P&L, XIRR, allocation donut
+## 3-minute start (Windows)
 
-> Backend API docs only: after starting, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) directly
-> Manual frontend start: `cd frontend && npm install && npm run dev` (needs Node.js 18+)
+1. Install Python ([official site](https://www.python.org/downloads/), tick **Add python.exe to PATH**)
+2. Click the green **Code** button → **Download ZIP**, extract
+3. Double-click **`start.bat`**, wait for the windows to finish, your dashboard opens in the browser
 
-If the page loads, you're up. Now let's record your first holding.
+> API docs only: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+> Manual frontend start: `cd frontend && npm install && npm run dev` (Node.js 18+)
 
-## First use: record a holding
+## Your first entry
 
-Open the API docs page at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) — everything below is point and click:
+**① Add an instrument** — open the Instruments tab, search `03152`, `SGOV`, `腾讯` or `博时`, click a result to auto-fill symbol, market and currency, save.
 
-**Step 1: add an instrument** — find `POST /api/instruments`, expand it → **Try it out** → replace the request body with:
+**② Record a buy** — open the Transactions tab, pick the instrument, enter quantity, price and date, save. Position size and average cost are computed for you.
 
-```json
-{"symbol": "SGOV", "name": "iShares 0-3 Month Treasury Bond ETF", "market": "US", "currency": "USD", "asset_type": "etf"}
-```
+**③ Refresh quotes** — hit "Refresh" on the dashboard: total value, P&L and XIRR appear, with a "quotes as of" timestamp next to the button.
 
-For HK stocks, append `.HK` (note: Yahoo drops leading zeros, so `03152` becomes `3152.HK`):
-
-```json
-{"symbol": "3152.HK", "name": "Bosera HKD Money Market ETF", "market": "HK", "currency": "HKD", "asset_type": "etf"}
-```
-
-**Step 2: refresh quotes** — find `POST /api/prices/refresh` → **Try it out** → **Execute**. `"failed": []` means quotes came through.
-
-**Step 3: record your buy** — find `POST /api/transactions` and fill in your real trade:
-
-```json
-{"instrument_id": 1, "type": "buy", "date": "2026-09-28", "quantity": 2, "price": 100.66, "fee": 1.99}
-```
-
-(`instrument_id` is the `id` from step 1's response; for dividends use `"type": "dividend"` — then `quantity × price` = dividend amount received and `fee` = withholding tax/fees, deducted from the dividend.)
-
-**Step 4: see the total** — open [http://127.0.0.1:8000/api/portfolio/summary?base=HKD](http://127.0.0.1:8000/api/portfolio/summary?base=HKD) for total value, P&L and XIRR in HKD.
-
-> Day to day, there's only one thing to do: hit `POST /api/prices/refresh`, then check the summary.
+> Lots of trades? Transactions → **Import broker CSV** supports Futu / IBKR exports — preview first, confirm to write; unknown tickers auto-create instruments.
+> Deposits/withdrawals? The **Cash** card at the bottom of Transactions records money in/out, and XIRR counts it — the annualized figure becomes "what this money earned", not just "what these tickers earned".
 
 ## FAQ
 
-**How do I write HK tickers?**
-Yahoo Finance drops the leading zero: `03152` → `3152.HK`, `00700` → `700.HK`. US tickers as-is: `AAPL`, `SGOV`.
+**How do I write HK symbols?**
+Just search and click — no manual formatting needed. If you type them: Yahoo format strips leading zeros, `03152` → `3152.HK`, `00700` → `700.HK`; US tickers as-is (`AAPL`, `SGOV`).
 
 **How is total P&L computed?**
-Total P&L = unrealized (current price − remaining cost) + realized (sells & dividends, net of fees). "Invested" is the cost of your **remaining** position, not cumulative cash in.
+Total P&L = unrealized (price − remaining cost basis) + realized (sells and dividends, net of fees). "Invested" on the page is the cost of the **currently held** position, not lifetime deposits.
 
-**Why is my XIRR absurdly large?**
-XIRR is annualized — a 0.1% gain over 4 days annualizes to an extreme number. That's the math, not a bug. The longer you hold, the more realistic it gets. Each cashflow converts at the FX rate of its **transaction date** (captured automatically), so currency moves don't leak into your investment return.
+**Why is XIRR absurdly large?**
+XIRR is annualized — 0.1% over 4 days annualizes to a wild number. That's math, not a bug; it settles as the holding period grows. Each flow converts FX at the **transaction date's** rate (captured automatically), so FX noise never leaks into investment returns.
 
-**How fresh are the quotes?**
-Yahoo Finance is ~15min delayed. For closer to real-time, switch to the East Money source: close the backend window, run `$env:MARKET_PROVIDER="eastmoney"` in PowerShell first, then start (hint included in `start.bat`).
-
-**Can I import my broker's trade history?**
-Yes. On the Transactions page, "Import broker CSV" supports Futu / IBKR trade CSV exports (preview first, confirm to write; unknown tickers auto-create instruments).
-
-**How do I record deposits and withdrawals?**
-There's a "Cash" card below on the Transactions page: record deposits and withdrawals, and XIRR will treat them as money in/out — so the annualized return reflects "what this money earned", not just "what these tickers earned".
+**How good are the quotes?**
+**East Money** by default (closer to real-time); if it misses a symbol, **Yahoo Finance** fills in (~15 min delayed). Every quote records its actual source, shown next to "quotes as of".
 
 **How is the net-worth curve drawn?**
-Each day's total = quantity held that day × that day's close. It only uses price snapshots already in the DB (never triggers a live fetch). Historical days are converted with today's FX rate (no historical FX is stored), so treat old absolute values as approximate — the shape is trustworthy.
+Daily total = that day's position sizes × that day's closes, replayed from stored snapshots only (no live fetching). Historical days convert FX at **today's** rate — curve shape is trustworthy, old absolute values are approximate (noted next to the chart).
 
 **Where is my data?**
-In a local SQLite file on your machine (`backend/duetfolio.db`). Nothing is uploaded anywhere.
+Local SQLite file (`backend/duetfolio.db`). Nothing leaves your machine.
 
-## Tech stack (for developers)
+---
 
-| Layer | Choice |
-|---|---|
-| Backend | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2 |
-| Database | SQLite (zero-config default) / PostgreSQL (via `DATABASE_URL`) |
-| Market data | yfinance (default) / East Money push2 (`MARKET_PROVIDER=eastmoney`) |
-| Frontend | React 18 + Vite, hand-rolled SVG charts |
-| Deploy | Docker Compose (`docker compose up --build`) |
+## Architecture (for developers)
 
-Migrations run automatically on startup. Quote sources are a pluggable `BaseProvider` architecture (see `backend/app/services/market.py`).
+```
+frontend/  React 18 + Vite, hand-rolled SVG charts (zero chart deps)
+backend/   FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic v2
+db         SQLite (zero-config default) / PostgreSQL (via DATABASE_URL)
+```
+
+### Conventions
+
+- **Positions & cost**: average-cost method. Buys scale cost up proportionally, sells release it proportionally, cost hits exactly zero on full exit (never negative).
+- **XIRR**: pure-Python Newton solver (`backend/app/services/xirr.py`). Flows: buys (negative, incl. fees) / sells & dividends (positive, net of fees) / cash deposits (negative) / withdrawals (positive); terminal value dated at the **latest quote date**, not today (avoids annualization inflation). Returns null on <2 flows or single-signed flows — never forced.
+- **FX**: each transaction captures the **trade-date** FX into `fx_to_hkd`; XIRR flows convert at that rate. Latest rates cached 10 min TTL.
+- **Missing-data circuit breaker**: if any holding lacks a quote or any currency lacks FX, totals and XIRR go null (with a banner naming the gaps) — no "partially trustworthy" numbers.
+
+### Market-data design
+
+`BaseProvider` abstraction in `backend/app/services/market.py`, switched by `MARKET_PROVIDER` (default `eastmoney`, `yfinance` optional).
+
+- **Primary/backup chain**: `refresh_all` tries the primary provider per symbol, then the backup before marking failed. Snapshots record the **actual** `source`/`fetched_at`, which the dashboard's "quotes as of" label reads.
+- **eastmoney**: unofficial push2 API (`f43` latest / `f60` prev close); symbols mapped via the suggest API (`3152.HK` → `116.03152`, leading zeros restored); FX via yfinance (East Money has no reliable forex endpoint).
+- **Symbol search**: `GET /api/instruments/search` queries Yahoo search + East Money suggest concurrently (generic + `mktnum=116` HK-only pass, so mainland funds can't crowd HK ETFs out of the ranking), dedupes, keeps US/HK only.
+
+### API reference
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/health` | liveness |
+| GET/POST/DELETE | `/api/instruments…` | instruments |
+| GET | `/api/instruments/search?q=` | fuzzy symbol/CJK-name search |
+| GET/POST/PUT/DELETE | `/api/transactions…` | flows, incl. inline edit |
+| POST | `/api/transactions/import/preview` | broker CSV parse preview (Futu/IBKR/generic) |
+| POST | `/api/transactions/import` | confirm import (unknown tickers auto-created) |
+| GET/POST/DELETE | `/api/cash…` | deposits/withdrawals |
+| GET | `/api/portfolio/summary?base=` | totals, XIRR, dividends, holdings |
+| GET | `/api/portfolio/history?base=` | net-worth curve points |
+| POST | `/api/prices/refresh` | refresh all quotes (8-thread pool) |
+
+Interactive docs at `/docs` once the backend is running.
+
+### Local development
+
+```bash
+cd backend
+python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+.venv/bin/uvicorn app.main:app --reload   # migrations run automatically on boot
+.venv/bin/python -m pytest tests/         # 24 tests
+
+cd ../frontend
+npm install && npm run dev
+```
+
+### Configuration (env vars)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `MARKET_PROVIDER` | `eastmoney` | primary quote source; `yfinance` switches, the other becomes automatic backup |
+| `BASE_CURRENCY` | `HKD` | base currency |
+| `DATABASE_URL` | local SQLite | `postgresql+psycopg2://…` for Postgres |
+| `CORS_ORIGINS` | `*` | frontend CORS |
+| `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` | unset | when set, `/api/*` requires auth (except health) |
+| `YFINANCE_TIMEOUT` | `15` | yfinance timeout, seconds |
+
+### Deploy
+
+```bash
+docker compose up --build
+```
 
 ## Disclaimer
 
-Quote data is delayed and may be inaccurate. This tool is for personal tracking only, not investment advice.
+Quotes are delayed and may be inaccurate. This tool is for personal bookkeeping only, not investment advice.
 
 ## License
 
@@ -107,8 +139,8 @@ MIT
 
 ## Buy me a coffee
 
-If this project saved you some time, consider buying me a coffee. ☕
+If this project saved you some time, coffee is welcome. ☕
 
 | Alipay | WeChat Pay |
 | ------ | ---------- |
-| ![Alipay QR code](assets/alipay.jpg) | ![WeChat Pay QR code](assets/wechat-pay.png) |
+| ![Alipay QR](assets/alipay.jpg) | ![WeChat Pay QR](assets/wechat-pay.png) |

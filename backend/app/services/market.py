@@ -1,15 +1,20 @@
 """Market data providers.
 
 Architecture: every provider implements BaseProvider. The active provider is
-chosen by the MARKET_PROVIDER env var ("yfinance" default, "eastmoney"
+chosen by the MARKET_PROVIDER env var ("eastmoney" default, "yfinance"
 optional). Callers (refresh_all, portfolio engine) never touch a provider
 directly — they use the module-level fetch_close / fetch_usd_to_hkd /
 fetch_fx_to_hkd, which delegate to the active provider.
 
-- yfinance: official-ish, zero-setup, ~15min delayed quotes.
+Quote fetching (refresh_all) always has a backup: if the primary provider
+returns nothing for a symbol, the other provider is tried before the symbol
+is reported as failed. The snapshot records which provider actually
+supplied each quote.
+
 - eastmoney: unofficial push2.eastmoney.com API. Closer to real-time for
   CN-based investors and needs no API key, but it is undocumented and may
   break without notice. Any failure degrades to None (reported as "failed").
+- yfinance: official-ish, zero-setup, ~15min delayed quotes.
 """
 import json
 import time
@@ -245,25 +250,32 @@ def refresh_all(db: Session) -> dict:
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    provider = get_provider()
+    primary = get_provider()
+    fallback = (YFinanceProvider() if primary.name == "eastmoney"
+                else EastMoneyProvider())
     instruments = db.query(Instrument).all()
 
     def _fetch(inst) -> tuple:
-        try:
-            return inst, provider.fetch_close(inst.symbol)
-        except Exception:
-            return inst, None
+        """Primary first, backup provider second. Returns (inst, result, source)."""
+        for prov in (primary, fallback):
+            try:
+                res = prov.fetch_close(inst.symbol)
+            except Exception:
+                res = None
+            if res is not None:
+                return inst, res, prov.name
+        return inst, None, None
 
     fetched: dict[int, tuple | None] = {}
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for inst, res in ex.map(_fetch, instruments):
-            fetched[inst.id] = (inst, res)
+        for inst, res, src in ex.map(_fetch, instruments):
+            fetched[inst.id] = (inst, res, src)
 
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     updated, failed = [], []
     for inst in instruments:
-        _inst, res = fetched[inst.id]
+        _inst, res, src = fetched[inst.id]
         if res is None:
             failed.append(inst.symbol)
             continue
@@ -276,15 +288,16 @@ def refresh_all(db: Session) -> dict:
         if snap:
             snap.close = close
             snap.prev_close = prev_close
-            snap.source = provider.name
+            snap.source = src
             snap.fetched_at = now
         else:
             db.add(PriceSnapshot(instrument_id=inst.id, date=d, close=close,
-                                 prev_close=prev_close, source=provider.name,
+                                 prev_close=prev_close, source=src,
                                  fetched_at=now))
         updated.append(inst.symbol)
     db.commit()
-    return {"provider": provider.name, "updated": updated, "failed": failed}
+    return {"provider": primary.name, "fallback": fallback.name,
+            "updated": updated, "failed": failed}
 
 
 # ---- symbol search (for the "add instrument" flow) ----

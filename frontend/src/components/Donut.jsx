@@ -31,7 +31,7 @@ export default function Donut({ items, subLabel }) {
   return (
     <div className="donut-wrap">
       <svg width="180" height="180" viewBox="0 0 180 180">
-        <circle cx="90" cy="90" r={R} fill="none" stroke="#23232b" strokeWidth="26" />
+        <circle cx="90" cy="90" r={R} fill="none" stroke="var(--track)" strokeWidth="26" />
         {segs}
         <text x="90" y="86" textAnchor="middle" className="donut-total">{items.length}</text>
         <text x="90" y="104" textAnchor="middle" className="donut-sub">{subLabel ?? t.positions}</text>

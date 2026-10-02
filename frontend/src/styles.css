@@ -9,6 +9,20 @@
   --red: #ff6b6b;
   --green: #51cf66;
   --amber: #f0b429;
+  --track: #23232b; /* donut background ring */
+}
+[data-theme="light"] {
+  --bg: #f2f4f7;
+  --panel: #ffffff;
+  --panel2: #eceff3;
+  --border: #dde1e9;
+  --text: #1a1d24;
+  --muted: #6b7280;
+  --accent: #2f6fed;
+  --red: #e5484d;
+  --green: #1f9d55;
+  --amber: #b7791f;
+  --track: #e8ebf1;
 }
 * { box-sizing: border-box; }
 body {

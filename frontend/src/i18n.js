@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 const STRINGS = {
   en: {
     brandSub: 'US + HK portfolio tracker',
-    footer: 'duetfolio · FastAPI + React · prices via Yahoo Finance (15-min delay)',
+    footer: 'duetfolio · FastAPI + React · prices via East Money (Yahoo Finance as backup)',
     tabs: { dashboard: '📊 Dashboard', transactions: '🧾 Transactions', instruments: '🏷 Instruments' },
     langBtn: '中文',
+    themeLight: '浅色模式',
+    themeDark: '深色模式',
 
     apiDown: 'API unreachable — is the backend running on :8000?',
     refresh: '⟳ Refresh prices',
@@ -105,9 +107,11 @@ const STRINGS = {
   },
   zh: {
     brandSub: '美股 + 港股组合追踪',
-    footer: 'duetfolio · FastAPI + React · 行情来自雅虎财经（延迟约 15 分钟）',
+    footer: 'duetfolio · FastAPI + React · 行情来自东方财富（雅虎财经为备选）',
     tabs: { dashboard: '📊 仪表盘', transactions: '🧾 流水', instruments: '🏷 标的' },
     langBtn: 'EN',
+    themeLight: 'Light mode',
+    themeDark: 'Dark mode',
 
     apiDown: '连不上后端——:8000 跑起来了吗？',
     refresh: '⟳ 刷新行情',

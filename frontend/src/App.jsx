@@ -1,14 +1,28 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard.jsx';
 import Transactions from './pages/Transactions.jsx';
 import Instruments from './pages/Instruments.jsx';
 import { useLang } from './i18n.js';
 
+function initTheme() {
+  try {
+    const saved = localStorage.getItem('duetfolio-theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch { /* ignore */ }
+  return 'dark';
+}
+
 export default function App() {
   const [tab, setTab] = useState('dashboard');
   const [reloadKey, setReloadKey] = useState(0);
   const { lang, setLang, t } = useLang();
+  const [theme, setTheme] = useState(initTheme);
   const reload = () => setReloadKey((k) => k + 1);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem('duetfolio-theme', theme); } catch { /* ignore */ }
+  }, [theme]);
 
   const TABS = [
     { id: 'dashboard', label: t.tabs.dashboard },
@@ -42,6 +56,13 @@ export default function App() {
             title="switch language"
           >
             {t.langBtn}
+          </button>
+          <button
+            className="tab lang-btn"
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? t.themeLight : t.themeDark}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
           </button>
         </nav>
       </header>

@@ -304,3 +304,39 @@ def test_search_hk_not_crowded_out(monkeypatch):
     assert "2832.HK" in syms
     assert syms.count("2832.HK") == 1  # deduped across the two queries
     assert not any(r["market"] not in ("HK", "US") for r in res)
+
+
+def test_refresh_falls_back_to_backup_provider(db, monkeypatch):
+    """Primary (eastmoney) returns nothing -> yahoo quote is used and the
+    snapshot records the actual source."""
+    from datetime import date as d
+    from app.services import market as m
+    from app.models.models import PriceSnapshot
+
+    inst = add_instrument(db, "SGOV", "USD", "US")
+    monkeypatch.setattr(m.EastMoneyProvider, "fetch_close",
+                        lambda self, sym: None)
+    monkeypatch.setattr(m.YFinanceProvider, "fetch_close",
+                        lambda self, sym: (d(2026, 10, 2), 100.5, 100.4))
+    monkeypatch.setattr(m.config, "MARKET_PROVIDER", "eastmoney")
+
+    res = m.refresh_all(db)
+    assert res["provider"] == "eastmoney"
+    assert res["fallback"] == "yfinance"
+    assert res["updated"] == ["SGOV"] and not res["failed"]
+    snap = db.query(PriceSnapshot).filter_by(instrument_id=inst.id).one()
+    assert snap.close == 100.5 and snap.source == "yfinance"
+
+
+def test_refresh_both_providers_fail(db, monkeypatch):
+    from app.services import market as m
+
+    add_instrument(db, "SGOV", "USD", "US")
+    monkeypatch.setattr(m.EastMoneyProvider, "fetch_close",
+                        lambda self, sym: None)
+    monkeypatch.setattr(m.YFinanceProvider, "fetch_close",
+                        lambda self, sym: (_ for _ in ()).throw(RuntimeError("down")))
+    monkeypatch.setattr(m.config, "MARKET_PROVIDER", "eastmoney")
+
+    res = m.refresh_all(db)
+    assert res["failed"] == ["SGOV"] and not res["updated"]
