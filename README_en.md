@@ -22,9 +22,11 @@ No sign-up, no data uploads. Your ledger lives in a local SQLite file. Dark/ligh
 
 1. Install Python ([official site](https://www.python.org/downloads/), tick **Add python.exe to PATH**)
 2. Click the green **Code** button → **Download ZIP**, extract
-3. Double-click **`start.bat`**, wait for dependencies (slow on first run), your dashboard opens in the browser
+3. Open PowerShell in the project folder and run **`& .\start.ps1`** (wait for dependencies on first run), your dashboard opens in the browser
 
+> If it says scripts are disabled, run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` once (type `Y`), then the command above.
 > It opens [http://127.0.0.1:8000](http://127.0.0.1:8000) — the backend also serves the frontend, so **only one window** stays open. Close it to stop.
+> Alternative: double-click `start.bat` (the batch window may flash-close on some systems; use the PowerShell method instead).
 > API docs only: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 > Manual frontend dev: `cd frontend && npm install && npm run dev` (Node.js 18+, page then lives on `:5173`)
 

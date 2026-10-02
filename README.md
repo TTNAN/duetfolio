@@ -22,9 +22,11 @@ duetfolio 是一个跑在你自己电脑上的组合记账本，专门给**同�
 
 1. 装 Python（[官网下载](https://www.python.org/downloads/)，安装时勾选 **Add python.exe to PATH**）
 2. 点本仓库绿色 **Code** → **Download ZIP**，解压
-3. 双击 **`start.bat`**，等它装好依赖（首次较慢），浏览器会自动打开仪表盘
+3. 在项目文件夹里打开 PowerShell，运行 **`& .\start.ps1`**（等它装好依赖，首次较慢），浏览器会自动打开仪表盘
 
-> 打开的是 [http://127.0.0.1:8000](http://127.0.0.1:8000) —— 后端会把前端页面一起 serve 起来，**只用开这一个黑窗口**，关掉即停止。
+> 如果提示"禁止运行脚本"，先跑一次 `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`（输 `Y` 确认），再运行上面的命令。
+> 打开的是 [http://127.0.0.1:8000](http://127.0.0.1:8000) —— 后端会把前端页面一起 serve 起来，**只用开这一个窗口**，关掉即停止。
+> 备选：双击 `start.bat` 效果相同（部分系统上批处理窗口可能闪退，改用上面的 PowerShell 方式）。
 > 只要 API 文档：[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 > 前端手动开发：`cd frontend && npm install && npm run dev`（需 Node.js 18+，此时页面在 `:5173`）
 
