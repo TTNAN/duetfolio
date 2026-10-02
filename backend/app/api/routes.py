@@ -73,14 +73,24 @@ def create_transaction(body: TransactionCreate, db: Session = Depends(get_db)):
     inst = db.get(Instrument, body.instrument_id)
     if not inst:
         raise HTTPException(400, "Unknown instrument_id")
-    t = Transaction(**body.model_dump())
+    if body.type == "sell":
+        held = next(
+            (h["quantity"] for h in compute_holdings(db)
+             if h["instrument"].id == body.instrument_id), 0.0)
+        if body.quantity > held + 1e-9:
+            raise HTTPException(
+                400, f"Oversell: holding {held:g}, tried to sell {body.quantity:g}")
+    # capture the FX rate of the transaction date so historical cashflows
+    # (XIRR) aren't polluted by later FX moves; None = fall back to current
+    fx_to_hkd = market.fetch_fx_to_hkd_on(inst.currency, body.date)
+    t = Transaction(**body.model_dump(), fx_to_hkd=fx_to_hkd)
     db.add(t)
     db.commit()
     db.refresh(t)
     return TransactionOut(
         id=t.id, instrument_id=t.instrument_id, type=t.type,
         quantity=t.quantity, price=t.price, fee=t.fee,
-        date=t.date, note=t.note, symbol=inst.symbol,
+        date=t.date, note=t.note, fx_to_hkd=t.fx_to_hkd, symbol=inst.symbol,
     )
 
 

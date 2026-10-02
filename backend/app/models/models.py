@@ -41,6 +41,11 @@ class Transaction(Base):
     fee = Column(Float, nullable=False, default=0.0)
     date = Column(Date, nullable=False, index=True)
     note = Column(Text, default="")
+    # HKD per 1 unit of instrument currency, captured on the transaction date.
+    # Used to convert historical cashflows (XIRR) at the rate of the time,
+    # so FX moves don't leak into "investment return". NULL = fall back to
+    # the current rate (pre-feature data).
+    fx_to_hkd = Column(Float, nullable=True)
 
     instrument = relationship("Instrument", back_populates="transactions")
 

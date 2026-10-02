@@ -45,7 +45,7 @@ For HK stocks, append `.HK` (note: Yahoo drops leading zeros, so `03152` becomes
 **Step 3: record your buy** — find `POST /api/transactions` and fill in your real trade:
 
 ```json
-{"instrument_id": 1, "type": "buy", "date": "2026-09-28", "quantity": 2, "price": 100.66, "fee": 1.99, "currency": "USD"}
+{"instrument_id": 1, "type": "buy", "date": "2026-09-28", "quantity": 2, "price": 100.66, "fee": 1.99}
 ```
 
 (`instrument_id` is the `id` from step 1's response; use `"type": "dividend"` for dividend payouts.)
@@ -60,7 +60,7 @@ For HK stocks, append `.HK` (note: Yahoo drops leading zeros, so `03152` becomes
 Yahoo Finance drops the leading zero: `03152` → `3152.HK`, `00700` → `700.HK`. US tickers as-is: `AAPL`, `SGOV`.
 
 **Why is my XIRR absurdly large?**
-XIRR is annualized — a 0.1% gain over 4 days annualizes to an extreme number. That's the math, not a bug. The longer you hold, the more realistic it gets.
+XIRR is annualized — a 0.1% gain over 4 days annualizes to an extreme number. That's the math, not a bug. The longer you hold, the more realistic it gets. Each cashflow converts at the FX rate of its **transaction date** (captured automatically), so currency moves don't leak into your investment return.
 
 **How fresh are the quotes?**
 Yahoo Finance is ~15min delayed. For closer to real-time, switch to the East Money source: close the backend window, run `$env:MARKET_PROVIDER="eastmoney"` in PowerShell first, then start (hint included in `start.bat`).

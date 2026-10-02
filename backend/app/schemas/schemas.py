@@ -44,6 +44,7 @@ class TransactionOut(BaseModel):
     fee: float
     date: date
     note: str
+    fx_to_hkd: Optional[float] = None  # rate captured on the transaction date
     symbol: Optional[str] = None  # joined for display
 
 
@@ -69,8 +70,9 @@ class PortfolioSummary(BaseModel):
     base_currency: str
     fx_usd_to_base: Optional[float] = None
     total_value: Optional[float] = None
-    total_invested: float
+    total_invested: Optional[float] = None
     total_pnl: Optional[float] = None
     xirr: Optional[float] = None  # annualized, e.g. 0.083 = 8.3%
     holdings: list[HoldingOut]
     price_stale: list[str] = []   # symbols without a fresh price
+    fx_stale: list[str] = []      # currencies without a convertible FX rate

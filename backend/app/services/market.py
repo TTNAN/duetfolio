@@ -71,6 +71,40 @@ class YFinanceProvider(BaseProvider):
         return res[1] if res else None
 
 
+def _hist_close(ticker: str, d: date) -> float | None:
+    """Latest daily close on or before date d (for transaction-date FX)."""
+    if yf is None:
+        return None
+    try:
+        hist = yf.Ticker(ticker).history(period="3mo", timeout=HTTP_TIMEOUT)
+        if hist is None or hist.empty:
+            return None
+        best = None
+        for ts, row in hist.iterrows():
+            if ts.date() <= d:
+                best = float(row["Close"])
+            else:
+                break
+        return best
+    except Exception:
+        return None
+
+
+def fetch_fx_to_hkd_on(currency: str, d: date) -> float | None:
+    """HKD per 1 unit of `currency` on date d. None if unavailable."""
+    if currency == "HKD":
+        return 1.0
+    if currency == "USD":
+        return _hist_close("HKD=X", d)
+    if currency == "CNY":
+        usd_hkd = _hist_close("HKD=X", d)
+        usd_cny = _hist_close("CNY=X", d)
+        if usd_hkd and usd_cny:
+            return usd_hkd / usd_cny
+        return None
+    return None
+
+
 class EastMoneyProvider(BaseProvider):
     """Unofficial East Money (东方财富) push2 API provider.
 

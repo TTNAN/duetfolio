@@ -72,11 +72,18 @@ export default function Dashboard({ reloadKey }) {
         </button>
       </div>
       {err && <div className="card error">{err}</div>}
+      {(data.price_stale?.length > 0 || data.fx_stale?.length > 0) && (
+        <div className="card warn">
+          数据不完整，总数已隐藏：
+          {data.price_stale?.length > 0 && ` ${data.price_stale.join(', ')} 缺行情；`}
+          {data.fx_stale?.length > 0 && ` ${data.fx_stale.join(', ')} 汇率缺失`}
+        </div>
+      )}
 
       <div className="stats">
         <StatCard label={`Total value (${data.base_currency})`} value={fmt(data.total_value)} sub={data.fx_usd_to_base ? `USD/${data.base_currency} ${data.fx_usd_to_base.toFixed(4)}` : ''} />
         <StatCard label="Invested" value={fmt(data.total_invested)} />
-        <StatCard label="Unrealized P&L" value={(data.total_pnl >= 0 ? '+' : '') + fmt(data.total_pnl)} tone={pnlTone} />
+        <StatCard label="Unrealized P&L" value={data.total_pnl == null ? '—' : (data.total_pnl >= 0 ? '+' : '') + fmt(data.total_pnl)} tone={pnlTone} />
         <StatCard label="XIRR (annualized)" value={data.xirr === null ? '—' : (data.xirr * 100).toFixed(2) + '%'} sub="incl. dividends & terminal value" tone={pnlTone} />
       </div>
 

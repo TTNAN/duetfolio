@@ -8,6 +8,7 @@
   --accent: #4f8cff;
   --red: #ff6b6b;
   --green: #51cf66;
+  --amber: #f0b429;
 }
 * { box-sizing: border-box; }
 body {
@@ -42,6 +43,7 @@ body {
 }
 .card h3 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
 .card.error { border-color: var(--red); color: var(--red); }
+.card.warn { border-color: var(--amber); color: var(--amber); }
 .error-text { color: var(--red); margin-top: 10px; font-size: 13px; }
 
 .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }

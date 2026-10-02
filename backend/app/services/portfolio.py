@@ -51,17 +51,21 @@ def compute_holdings(db: Session) -> list[dict]:
             .all()
         )
         qty = 0.0
-        cost = 0.0  # total cash spent incl. fees
+        cost = 0.0  # cash spent to acquire the current position (average-cost)
         for t in txns:
             if t.type == "buy":
                 qty += t.quantity
                 cost += t.quantity * t.price + t.fee
             elif t.type == "sell":
                 if qty > 0:
-                    # reduce cost basis proportionally (average-cost method)
-                    cost -= cost * (t.quantity / qty)
+                    # average-cost: selling removes its proportional share of cost.
+                    # sell fees are an expense on proceeds (handled in cashflows),
+                    # they must NOT reduce cost basis — otherwise selling everything
+                    # leaves cost at -fee instead of 0.
+                    cost -= cost * (min(t.quantity, qty) / qty)
                 qty -= t.quantity
-                cost -= t.fee  # fees on sell reduce net proceeds, tracked in cashflows
+                if qty <= 0:
+                    qty, cost = 0.0, 0.0
         holdings.append({
             "instrument": inst,
             "quantity": round(qty, 6),
@@ -86,6 +90,7 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
     rates = _fx_rates()
     holdings_out: list[HoldingOut] = []
     stale: list[str] = []
+    fx_gaps: set[str] = set()  # currencies we couldn't convert (FX fetch failed)
     total_value = 0.0
     total_invested = 0.0
     has_price = False
@@ -97,7 +102,9 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         inst = h["instrument"]
         snap = latest_price(db, inst.id)
         invested_base = _to_base(h["invested"], inst.currency, base, rates)
-        if invested_base is not None:
+        if invested_base is None:
+            fx_gaps.add(inst.currency)
+        else:
             total_invested += invested_base
 
         mv = pnl = mv_base = pnl_base = None
@@ -109,23 +116,33 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
             pnl = mv - h["invested"]
             mv_base = _to_base(mv, inst.currency, base, rates)
             pnl_base = _to_base(pnl, inst.currency, base, rates)
-            if mv_base is not None:
+            if mv_base is None or pnl_base is None:
+                fx_gaps.add(inst.currency)
+            else:
                 total_value += mv_base
         else:
             stale.append(inst.symbol)
 
-        # cashflows from transactions
+        # cashflows from transactions.
+        # XIRR signs: buys are outflows (cost + fee), sells/dividends are
+        # inflows NET of fee (fee on sell, withholding tax on dividends) —
+        # adding the fee would count it as profit.
+        # Amounts convert at the FX rate captured on the transaction date
+        # (t.fx_to_hkd), falling back to the current rate for old rows.
         for t in h["transactions"]:
-            amt = t.quantity * t.price + t.fee
-            amt_base = _to_base(amt, inst.currency, base, rates)
-            if amt_base is None:
+            eff_rates = dict(rates)
+            if t.fx_to_hkd:
+                eff_rates[inst.currency] = t.fx_to_hkd
+            amt_base = _to_base(t.quantity * t.price, inst.currency, base, eff_rates)
+            fee_base = _to_base(t.fee, inst.currency, base, eff_rates)
+            if amt_base is None or fee_base is None:
                 continue
             if t.type == "buy":
-                cashflows.append((t.date, -amt_base))
+                cashflows.append((t.date, -(amt_base + fee_base)))
             elif t.type == "sell":
-                cashflows.append((t.date, amt_base - _to_base(t.fee, inst.currency, base, rates)))
+                cashflows.append((t.date, amt_base - fee_base))
             elif t.type == "dividend":
-                cashflows.append((t.date, amt_base))
+                cashflows.append((t.date, amt_base - fee_base))
 
         holdings_out.append(HoldingOut(
             instrument_id=inst.id, symbol=inst.symbol, name=inst.name,
@@ -142,19 +159,23 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
     # otherwise the IRR would be computed on a partial terminal value
     from datetime import date as date_cls
     xirr_value = None
+    # totals are only trustworthy with full prices AND full FX coverage;
+    # a partial total is worse than no total
+    complete = not stale and not fx_gaps
     if has_price and total_value > 0:
         cashflows.append((date_cls.today(), total_value))
-    if len(cashflows) >= 2 and not stale:
+    if len(cashflows) >= 2 and complete:
         r = xirr(cashflows)
         xirr_value = round(r, 4) if r is not None else None
 
     return PortfolioSummary(
         base_currency=base,
         fx_usd_to_base=rates.get("USD") if base == "HKD" else None,
-        total_value=round(total_value, 2) if has_price else None,
-        total_invested=round(total_invested, 2),
-        total_pnl=round(total_value - total_invested, 2) if has_price else None,
+        total_value=round(total_value, 2) if complete else None,
+        total_invested=round(total_invested, 2) if not fx_gaps else None,
+        total_pnl=round(total_value - total_invested, 2) if complete else None,
         xirr=xirr_value,
         holdings=holdings_out,
         price_stale=stale,
+        fx_stale=sorted(fx_gaps),
     )
