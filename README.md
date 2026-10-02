@@ -1,6 +1,6 @@
 # duetfolio ◈
 
-A dual-market (US + HK) portfolio tracker for investors who hold both — e.g. SGOV in USD and 03152 in HKD — and want one number in their home currency.
+A dual-market (US + HK) portfolio tracker — one home-currency number for holdings across both markets.
 
 **[中文版](README_zh.md)**
 
@@ -10,7 +10,7 @@ Most portfolio trackers are US/EU-centric. If your holdings span US and Hong Kon
 
 ## Features
 
-- 📈 **Dual-market prices** — US tickers as-is (`SGOV`), HK tickers with `.HK` suffix (`03152.HK`), via Yahoo Finance
+- 📈 **Dual-market prices** — US tickers as-is (`SGOV`), HK tickers with `.HK` suffix (`3152.HK`), via Yahoo Finance
 - 💱 **Multi-currency valuation** — every holding converted to your base currency with live FX (`HKD=X`)
 - 🧮 **XIRR** — true annualized return from actual cash flows (buys, sells, dividends + terminal value), pure-Python implementation
 - 🧾 **Transactions as source of truth** — holdings are always derived, never stored; average-cost basis
