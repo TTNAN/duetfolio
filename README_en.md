@@ -2,79 +2,87 @@
 
 # duetfolio ◈
 
-A dual-market (US + HK) portfolio tracker — one home-currency number for holdings across both markets.
+**Hold both US and HK stocks? This tool tells you exactly how much you've made.**
 
-## Why
+Say you bought a Treasury ETF in the US and a money-market ETF in Hong Kong — two markets, two currencies, and every day you wonder "in HKD terms, am I up or down overall?" Doing that conversion in your head gets old. duetfolio pulls quotes from both markets, converts everything into your chosen base currency (HKD/USD/CNY), and gives you one number: total value, total P&L, and true annualized return including dividends.
 
-Most portfolio trackers are US/EU-centric. If your holdings span US and Hong Kong markets in two currencies, you end up converting in your head. duetfolio pulls both markets via Yahoo Finance, converts everything to your base currency (HKD/USD/CNY), and shows true annualized return (XIRR) including dividends.
+## What it does for you
 
-## Features
+- 📈 **US + HK in one place** — see holdings across both markets without switching apps
+- 💱 **Auto-converted to your currency** — USD and HKD positions converted at live FX rates into HKD (or USD/CNY)
+- 🧮 **True annualized return (XIRR)** — not just "up X%", but an annualized rate computed from the actual timing and amounts of every buy, sell and dividend
+- 🧾 **Holdings derived from your trade log** — you just record "bought N shares at $X on this date"; quantities and average cost are computed automatically, no spreadsheet maintenance
+- 🔌 **Two quote sources** — Yahoo Finance by default (zero setup, ~15min delayed); switchable to East Money push2 (closer to real-time, no API key)
 
-- 📈 **Dual-market prices** — US tickers as-is (`AAPL`), HK tickers with `.HK` suffix (`00700.HK`), via Yahoo Finance
-- 💱 **Multi-currency valuation** — every holding converted to your base currency with live FX (`HKD=X`)
-- 🧮 **XIRR** — true annualized return from actual cash flows (buys, sells, dividends + terminal value), pure-Python implementation
-- 🧾 **Transactions as source of truth** — holdings are always derived, never stored; average-cost basis
-- 🐳 **One-command deploy** — `docker compose up`
+## Quick start (Windows, beginner-friendly)
 
-## Tech stack
+You only need Python ([download here](https://www.python.org/downloads/), tick **Add python.exe to PATH** during install), then:
+
+1. Click the green **Code** button on this repo → **Download ZIP**, extract it
+2. Double-click **`start.bat`** in the extracted folder, wait for it to install dependencies and start the backend
+3. Open http://127.0.0.1:8000/docs in your browser
+
+If the page loads, you're up. Now let's record your first holding.
+
+## First use: record a holding
+
+Everything below happens on that docs page — all point and click:
+
+**Step 1: add an instrument** — find `POST /api/instruments`, expand it → **Try it out** → replace the request body with:
+
+```json
+{"symbol": "SGOV", "name": "iShares 0-3 Month Treasury Bond ETF", "market": "US", "currency": "USD", "asset_type": "etf"}
+```
+
+For HK stocks, append `.HK` (note: Yahoo drops leading zeros, so `03152` becomes `3152.HK`):
+
+```json
+{"symbol": "3152.HK", "name": "Bosera HKD Money Market ETF", "market": "HK", "currency": "HKD", "asset_type": "etf"}
+```
+
+**Step 2: refresh quotes** — find `POST /api/prices/refresh` → **Try it out** → **Execute**. `"failed": []` means quotes came through.
+
+**Step 3: record your buy** — find `POST /api/transactions` and fill in your real trade:
+
+```json
+{"instrument_id": 1, "type": "buy", "date": "2026-09-28", "quantity": 2, "price": 100.66, "fee": 1.99, "currency": "USD"}
+```
+
+(`instrument_id` is the `id` from step 1's response; use `"type": "dividend"` for dividend payouts.)
+
+**Step 4: see the total** — open http://127.0.0.1:8000/api/portfolio/summary?base=HKD for total value, P&L and XIRR in HKD.
+
+> Day to day, there's only one thing to do: hit `POST /api/prices/refresh`, then check the summary.
+
+## FAQ
+
+**How do I write HK tickers?**
+Yahoo Finance drops the leading zero: `03152` → `3152.HK`, `00700` → `700.HK`. US tickers as-is: `AAPL`, `SGOV`.
+
+**Why is my XIRR absurdly large?**
+XIRR is annualized — a 0.1% gain over 4 days annualizes to an extreme number. That's the math, not a bug. The longer you hold, the more realistic it gets.
+
+**How fresh are the quotes?**
+Yahoo Finance is ~15min delayed. For closer to real-time, switch to the East Money source: close the backend window, run `$env:MARKET_PROVIDER="eastmoney"` in PowerShell first, then start (hint included in `start.bat`).
+
+**Where is my data?**
+In a local SQLite file on your machine (`backend/duetfolio.db`). Nothing is uploaded anywhere.
+
+## Tech stack (for developers)
 
 | Layer | Choice |
 |---|---|
-| Backend | FastAPI, SQLAlchemy 2.0 (async-ready), Alembic, Pydantic v2 |
-| Database | SQLite (dev) / PostgreSQL (prod, via `DATABASE_URL`) |
-| Market data | yfinance (default) / East Money push2 (optional, via `MARKET_PROVIDER`) |
-| Frontend | React 18 + Vite, hand-rolled SVG charts (zero chart deps) |
-| Deploy | Docker Compose |
+| Backend | FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2 |
+| Database | SQLite (zero-config default) / PostgreSQL (via `DATABASE_URL`) |
+| Market data | yfinance (default) / East Money push2 (`MARKET_PROVIDER=eastmoney`) |
+| Frontend | React 18 + Vite, hand-rolled SVG charts |
+| Deploy | Docker Compose (`docker compose up --build`) |
 
-## Quick start
-
-**Backend:**
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload   # Alembic migrations run automatically on startup
-# API docs: http://localhost:8000/docs
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm install
-npm run dev   # http://localhost:5173 (proxies /api to :8000)
-```
-
-**Docker:**
-```bash
-docker compose up --build
-# web: http://localhost:5173  api: http://localhost:8000/docs
-```
-
-## API
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/health` | Health check |
-| GET/POST | `/api/instruments` | List / create instruments |
-| DELETE | `/api/instruments/{id}` | Delete (+ all its transactions) |
-| GET/POST | `/api/transactions` | List / record buy, sell, dividend |
-| DELETE | `/api/transactions/{id}` | Delete |
-| GET | `/api/portfolio/summary?base=HKD` | Valuation, P&L, XIRR, holdings |
-| POST | `/api/prices/refresh` | Pull latest closes from Yahoo Finance |
-
-## Scope decisions (deliberate)
-
-- **Single user, no auth** — auth is the next milestone, not this one.
-- **SQLite default** — zero-setup dev; `DATABASE_URL` switches to Postgres untouched.
-- **Average-cost basis** — simple, auditable; FIFO is a future option.
-- **Prices are a cache** — `price_snapshots` is a resilience layer, not canonical state.
-- **Yahoo HK tickers drop the leading zero** — e.g. 03152 (Bosera HKD Money Market ETF) is `3152.HK` on Yahoo, not `03152.HK`. Some small HK money-market ETFs aren't covered by Yahoo at all.
-- **Pluggable market data** — yfinance by default (zero setup, ~15min delayed); set `MARKET_PROVIDER=eastmoney` for East Money's push2 API (no key, closer to real-time, but **unofficial** and may break without notice — failures are reported as failed, never crash). Yahoo tickers auto-map to East Money secids (`SGOV`→`106.SGOV`, `3152.HK`→`116.03152`, leading zeros restored).
-- **XIRR annualizes aggressively** — a 4-day holding period produces extreme annualized numbers; that's the math, not a bug. XIRR is only reported when every holding has a fresh price.
+Migrations run automatically on startup. Quote sources are a pluggable `BaseProvider` architecture (see `backend/app/services/market.py`).
 
 ## Disclaimer
 
-Yahoo Finance data is delayed (~15 min) and may be inaccurate. This is a personal tracking tool, not investment advice.
+Quote data is delayed and may be inaccurate. This tool is for personal tracking only, not investment advice.
 
 ## License
 
