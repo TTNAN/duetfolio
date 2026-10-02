@@ -31,9 +31,15 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if not exist node_modules (
+if not exist "node_modules\.bin\vite.cmd" (
   echo [frontend 1/2] Installing dependencies (slow on first run, needs Node.js 18+)...
   call npm install
+  if not exist "node_modules\.bin\vite.cmd" (
+    echo [ERROR] npm install did not finish correctly. Check your network,
+    echo   then double-click start.bat again (or run "npm install" manually).
+    pause
+    exit /b 1
+  )
 )
 echo [frontend 2/2] Starting frontend in a new window...
 start "duetfolio-frontend" cmd /k "npm run dev"
