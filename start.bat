@@ -59,4 +59,8 @@ timeout /t 3 /nobreak >nul
 start http://127.0.0.1:8000
 cd /d "%~dp0backend"
 call .venv\Scripts\activate.bat
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+echo Starting server (this window stays open)...
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+echo.
+echo [stopped] The server has exited. Press any key to close this window.
+pause >nul
