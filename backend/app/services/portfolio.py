@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.models.models import Instrument, PriceSnapshot, Transaction
-from app.schemas.schemas import HoldingOut, PortfolioSummary
-from app.services.market import fetch_usd_to_hkd
+from app.schemas.schemas import HistoryPoint, HoldingOut, PortfolioSummary
+from app.services import market
 from app.services.xirr import xirr
 
 # to-HKD rates; extend as needed
@@ -13,20 +13,13 @@ TO_HKD = {"HKD": 1.0, "USD": None, "CNY": None}  # USD/CNY filled at runtime
 
 
 def _fx_rates() -> dict[str, float | None]:
-    rates = dict(TO_HKD)
-    usd_hkd = fetch_usd_to_hkd()
-    rates["USD"] = usd_hkd
-    # CNY via USD: USD/CNY ticker, then HKD = USD_HKD / USD_CNY
-    if usd_hkd:
-        try:
-            import yfinance as yf
-            hist = yf.Ticker("CNY=X").history(period="5d", timeout=config.YFINANCE_TIMEOUT)
-            if hist is not None and not hist.empty:
-                usd_cny = float(hist.iloc[-1]["Close"])
-                rates["CNY"] = usd_hkd / usd_cny if usd_cny else None
-        except Exception:
-            pass
-    return rates
+    # FX goes through the active market-data provider (cached, 10-min TTL).
+    # Callers must never import yfinance directly — see market.py.
+    return {
+        "HKD": 1.0,
+        "USD": market.fetch_fx_to_hkd("USD"),
+        "CNY": market.fetch_fx_to_hkd("CNY"),
+    }
 
 
 def _to_base(amount: float, currency: str, base: str, rates: dict) -> float | None:
@@ -110,6 +103,7 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
     total_invested = 0.0
     realized_base = 0.0
     has_price = False
+    latest_price_date = None
 
     # cashflows for XIRR: (date, amount in base currency); buys negative
     cashflows: list[tuple] = []
@@ -128,6 +122,8 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         if snap:
             has_price = True
             price_date = snap.date
+            if latest_price_date is None or price_date > latest_price_date:
+                latest_price_date = price_date
             mv = h["quantity"] * snap.close
             pnl = mv - h["invested"]
             mv_base = _to_base(mv, inst.currency, base, rates)
@@ -183,8 +179,10 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
             else:
                 realized_base += b
 
-    # terminal value for XIRR — only when every holding has a fresh price,
-    # otherwise the IRR would be computed on a partial terminal value
+    # terminal value for XIRR — dated at the latest price date, NOT today:
+    # annualizing over (today - first_cashflow) when prices are days old
+    # inflates the rate. Only computed when every holding has a fresh price,
+    # otherwise the IRR would be built on a partial terminal value.
     from datetime import date as date_cls
     xirr_value = None
     # totals are only trustworthy with full prices AND full FX coverage;
@@ -194,7 +192,7 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
     complete = not stale and not fx_gaps
     unrealized_base = total_value - total_invested
     if has_price and total_value > 0:
-        cashflows.append((date_cls.today(), total_value))
+        cashflows.append((latest_price_date or date_cls.today(), total_value))
     if len(cashflows) >= 2 and complete:
         r = xirr(cashflows)
         xirr_value = round(r, 4) if r is not None else None
@@ -212,3 +210,61 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         price_stale=stale,
         fx_stale=sorted(fx_gaps),
     )
+
+
+def portfolio_history(db: Session, base: str = config.BASE_CURRENCY) -> list[HistoryPoint]:
+    """Daily total portfolio value in `base` currency.
+
+    Built ONLY from persisted rows — never triggers a live fetch:
+    - quantity per day is reconstructed from transactions (buy/sell change it,
+      dividends don't);
+    - close per day is the latest snapshot on/before that day (carry-forward);
+    - FX uses today's rates for every day (documented approximation — we don't
+      store historical FX), so older points mix old prices with today's FX.
+    Days before an instrument's first snapshot contribute 0 for that leg.
+    """
+    base = base.upper()
+    insts = db.query(Instrument).all()
+    if not insts:
+        return []
+
+    rates = _fx_rates()
+
+    # per-instrument timelines
+    txns = {i.id: sorted(db.query(Transaction).filter_by(instrument_id=i.id).all(),
+                         key=lambda t: (t.date, t.id)) for i in insts}
+    snaps = {i.id: sorted(db.query(PriceSnapshot).filter_by(instrument_id=i.id).all(),
+                          key=lambda s: s.date) for i in insts}
+    days = sorted({s.date for ss in snaps.values() for s in ss})
+    if not days:
+        return []
+
+    out: list[HistoryPoint] = []
+    for d in days:
+        total = 0.0
+        ok = True
+        for i in insts:
+            qty = 0.0
+            for t in txns[i.id]:
+                if t.date > d:
+                    break
+                if t.type == "buy":
+                    qty += t.quantity
+                elif t.type == "sell":
+                    qty -= t.quantity
+            if qty <= 0:
+                continue
+            close = None
+            for s in snaps[i.id]:
+                if s.date > d:
+                    break
+                close = s.close
+            if close is None:
+                continue  # no price yet on this day -> contributes 0
+            leg = _to_base(qty * close, i.currency, base, rates)
+            if leg is None:
+                ok = False
+                break
+            total += leg
+        out.append(HistoryPoint(date=d, value=round(total, 2) if ok else None))
+    return out

@@ -79,3 +79,8 @@ class PortfolioSummary(BaseModel):
     holdings: list[HoldingOut]
     price_stale: list[str] = []   # symbols without a fresh price
     fx_stale: list[str] = []      # currencies without a convertible FX rate
+
+
+class HistoryPoint(BaseModel):
+    date: date
+    value: Optional[float] = None  # None when FX gaps make this day unconvertible

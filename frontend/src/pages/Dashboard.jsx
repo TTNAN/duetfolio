@@ -17,6 +17,45 @@ function StatCard({ label, value, sub, tone }) {
   );
 }
 
+function HistoryChart({ base }) {
+  const [pts, setPts] = useState(null);
+  useEffect(() => {
+    setPts(null);
+    api.history(base).then(setPts).catch(() => setPts([]));
+  }, [base]);
+
+  if (!pts) return <div className="muted">Loading…</div>;
+  const vals = pts.filter((p) => p.value != null);
+  if (vals.length < 2) return <div className="muted">Not enough history yet — refresh prices a few times.</div>;
+
+  const W = 560, H = 170, pad = 10;
+  const min = Math.min(...vals.map((p) => p.value));
+  const max = Math.max(...vals.map((p) => p.value));
+  const span = max - min || 1;
+  const xs = (i) => pad + (i / (vals.length - 1)) * (W - 2 * pad);
+  const ys = (v) => H - pad - ((v - min) / span) * (H - 2 * pad);
+  const line = vals.map((p, i) => `${xs(i).toFixed(1)},${ys(p.value).toFixed(1)}`).join(' ');
+  const area = `${pad},${H - pad} ${line} ${W - pad},${H - pad}`;
+  const first = vals[0].value, last = vals[vals.length - 1].value;
+  const tone = last >= first ? 'pos' : 'neg';
+  const chg = ((last - first) / (first || 1)) * 100;
+
+  return (
+    <div>
+      <div className={`stat-sub ${tone}`} style={{ marginBottom: 6 }}>
+        {last >= first ? '+' : ''}{chg.toFixed(2)}% since {vals[0].date}
+        <span className="muted"> · FX uses today's rate for all days</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="portfolio value history">
+        <polygon points={area} fill="currentColor" className={tone} opacity="0.12" />
+        <polyline points={line} fill="none" stroke="currentColor" strokeWidth="2" className={tone} />
+        <circle cx={xs(vals.length - 1)} cy={ys(last)} r="3.5" className={tone} fill="currentColor" />
+      </svg>
+      <div className="muted small">{vals[0].date} → {vals[vals.length - 1].date} · {base}</div>
+    </div>
+  );
+}
+
 export default function Dashboard({ reloadKey }) {
   const [data, setData] = useState(null);
   const [base, setBase] = useState('HKD');
@@ -85,6 +124,11 @@ export default function Dashboard({ reloadKey }) {
         <StatCard label="Invested" value={fmt(data.total_invested)} />
         <StatCard label="Total P&L" value={data.total_pnl == null ? '—' : (data.total_pnl >= 0 ? '+' : '') + fmt(data.total_pnl)} tone={pnlTone} sub={data.realized_pnl != null && data.unrealized_pnl != null ? `realized ${fmt(data.realized_pnl)} · unrealized ${fmt(data.unrealized_pnl)}` : ''} />
         <StatCard label="XIRR (annualized)" value={data.xirr === null ? '—' : (data.xirr * 100).toFixed(2) + '%'} sub="incl. dividends & terminal value" tone={pnlTone} />
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h3>Net worth</h3>
+        <HistoryChart base={base} />
       </div>
 
       <div className="grid2">

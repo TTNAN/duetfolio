@@ -17,6 +17,11 @@ BASE_CURRENCY = os.getenv("BASE_CURRENCY", "HKD").upper()
 # yfinance network timeout (seconds)
 YFINANCE_TIMEOUT = int(os.getenv("YFINANCE_TIMEOUT", "15"))
 
+# Optional HTTP Basic auth for deployments: set BOTH to require credentials
+# on every /api route except /api/health. Leave unset for local dev.
+BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER", "")
+BASIC_AUTH_PASS = os.getenv("BASIC_AUTH_PASS", "")
+
 # Market data provider: "yfinance" (default) or "eastmoney" (unofficial push2 API).
 # yfinance: zero-setup, ~15min delayed. eastmoney: closer to real-time for
 # CN investors, but unofficial and may break without notice.

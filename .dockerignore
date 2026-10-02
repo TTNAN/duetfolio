@@ -1,0 +1,12 @@
+# keep build context small and secrets out of images
+.git/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+*.db
+*.db-journal
+.env
+.DS_Store

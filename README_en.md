@@ -4,6 +4,8 @@
 
 **Hold both US and HK stocks? This tool tells you exactly how much you've made.**
 
+![duetfolio dashboard](assets/dashboard.png)
+
 Say you bought a Treasury ETF in the US and a money-market ETF in Hong Kong — two markets, two currencies, and every day you wonder "in HKD terms, am I up or down overall?" Doing that conversion in your head gets old. duetfolio pulls quotes from both markets, converts everything into your chosen base currency (HKD/USD/CNY), and gives you one number: total value, total P&L, and true annualized return including dividends.
 
 ## What it does for you
@@ -19,14 +21,17 @@ Say you bought a Treasury ETF in the US and a money-market ETF in Hong Kong — 
 You only need Python ([download here](https://www.python.org/downloads/), tick **Add python.exe to PATH** during install), then:
 
 1. Click the green **Code** button on this repo → **Download ZIP**, extract it
-2. Double-click **`start.bat`** in the extracted folder, wait for it to install dependencies and start the backend
-3. Open http://127.0.0.1:8000/docs in your browser
+2. Double-click **`start-all.bat`** in the extracted folder and wait for both windows (backend + frontend)
+3. Open http://127.0.0.1:5173 in your browser — that's your portfolio dashboard: total value, P&L, XIRR, allocation donut
+
+> Backend API docs only: double-click `start.bat`, then open http://127.0.0.1:8000/docs
+> Manual frontend start: `cd frontend && npm install && npm run dev` (needs Node.js 18+)
 
 If the page loads, you're up. Now let's record your first holding.
 
 ## First use: record a holding
 
-Everything below happens on that docs page — all point and click:
+Open the API docs page at http://127.0.0.1:8000/docs — everything below is point and click:
 
 **Step 1: add an instrument** — find `POST /api/instruments`, expand it → **Try it out** → replace the request body with:
 
@@ -67,6 +72,9 @@ XIRR is annualized — a 0.1% gain over 4 days annualizes to an extreme number. 
 
 **How fresh are the quotes?**
 Yahoo Finance is ~15min delayed. For closer to real-time, switch to the East Money source: close the backend window, run `$env:MARKET_PROVIDER="eastmoney"` in PowerShell first, then start (hint included in `start.bat`).
+
+**How is the net-worth curve drawn?**
+Each day's total = quantity held that day × that day's close. It only uses price snapshots already in the DB (never triggers a live fetch). Historical days are converted with today's FX rate (no historical FX is stored), so treat old absolute values as approximate — the shape is trustworthy.
 
 **Where is my data?**
 In a local SQLite file on your machine (`backend/duetfolio.db`). Nothing is uploaded anywhere.

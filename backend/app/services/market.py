@@ -3,8 +3,8 @@
 Architecture: every provider implements BaseProvider. The active provider is
 chosen by the MARKET_PROVIDER env var ("yfinance" default, "eastmoney"
 optional). Callers (refresh_all, portfolio engine) never touch a provider
-directly — they use the module-level fetch_close / fetch_usd_to_hkd, which
-delegate to the active provider.
+directly — they use the module-level fetch_close / fetch_usd_to_hkd /
+fetch_fx_to_hkd, which delegate to the active provider.
 
 - yfinance: official-ish, zero-setup, ~15min delayed quotes.
 - eastmoney: unofficial push2.eastmoney.com API. Closer to real-time for
@@ -12,6 +12,7 @@ delegate to the active provider.
   break without notice. Any failure degrades to None (reported as "failed").
 """
 import json
+import time
 import urllib.parse
 import urllib.request
 from datetime import date
@@ -50,6 +51,10 @@ class BaseProvider:
         """HKD per 1 USD."""
         raise NotImplementedError
 
+    def fetch_fx_to_hkd(self, currency: str, d: date | None = None) -> float | None:
+        """HKD per 1 unit of `currency`; on date d, or latest when d is None."""
+        raise NotImplementedError
+
 
 class YFinanceProvider(BaseProvider):
     name = "yfinance"
@@ -70,9 +75,22 @@ class YFinanceProvider(BaseProvider):
         res = self.fetch_close("HKD=X")
         return res[1] if res else None
 
+    def fetch_fx_to_hkd(self, currency: str, d: date | None = None) -> float | None:
+        if currency == "HKD":
+            return 1.0
+        if currency == "USD":
+            return _hist_close("HKD=X", d)
+        if currency == "CNY":
+            usd_hkd = _hist_close("HKD=X", d)
+            usd_cny = _hist_close("CNY=X", d)
+            if usd_hkd and usd_cny:
+                return usd_hkd / usd_cny
+            return None
+        return None
 
-def _hist_close(ticker: str, d: date) -> float | None:
-    """Latest daily close on or before date d (for transaction-date FX)."""
+
+def _hist_close(ticker: str, d: date | None) -> float | None:
+    """Latest daily close on or before d; latest available when d is None."""
     if yf is None:
         return None
     try:
@@ -81,28 +99,13 @@ def _hist_close(ticker: str, d: date) -> float | None:
             return None
         best = None
         for ts, row in hist.iterrows():
-            if ts.date() <= d:
+            if d is None or ts.date() <= d:
                 best = float(row["Close"])
-            else:
+            elif d is not None:
                 break
         return best
     except Exception:
         return None
-
-
-def fetch_fx_to_hkd_on(currency: str, d: date) -> float | None:
-    """HKD per 1 unit of `currency` on date d. None if unavailable."""
-    if currency == "HKD":
-        return 1.0
-    if currency == "USD":
-        return _hist_close("HKD=X", d)
-    if currency == "CNY":
-        usd_hkd = _hist_close("HKD=X", d)
-        usd_cny = _hist_close("CNY=X", d)
-        if usd_hkd and usd_cny:
-            return usd_hkd / usd_cny
-        return None
-    return None
 
 
 class EastMoneyProvider(BaseProvider):
@@ -176,13 +179,16 @@ class EastMoneyProvider(BaseProvider):
             return None
 
     def fetch_usd_to_hkd(self) -> float | None:
-        # East Money forex coverage is inconsistent; reuse yfinance when present.
-        if yf is not None:
-            try:
-                return YFinanceProvider().fetch_usd_to_hkd()
-            except Exception:
-                return None
-        return None
+        return self.fetch_fx_to_hkd("USD")
+
+    def fetch_fx_to_hkd(self, currency: str, d: date | None = None) -> float | None:
+        # East Money has no reliable public forex endpoint. FX is served by
+        # yfinance for every provider (it stays a hard dependency); the point
+        # of the abstraction is that *callers* never import yfinance directly.
+        try:
+            return YFinanceProvider().fetch_fx_to_hkd(currency, d)
+        except Exception:
+            return None
 
 
 def get_provider() -> BaseProvider:
@@ -200,13 +206,55 @@ def fetch_usd_to_hkd() -> float | None:
     return get_provider().fetch_usd_to_hkd()
 
 
+_FX_CACHE: dict[tuple, tuple[float, float | None]] = {}
+_FX_TTL_LATEST = 600.0  # seconds; portfolio_summary hits this on every view
+
+
+def fetch_fx_to_hkd(currency: str, d: date | None = None) -> float | None:
+    """HKD per 1 unit of currency, via the active provider.
+
+    Latest rates are cached 10 minutes; historical dates are immutable so
+    they are cached indefinitely (per process).
+    """
+    provider = get_provider()
+    key = (provider.name, currency, d.isoformat() if d else "latest")
+    now = time.monotonic()
+    ttl = float("inf") if d and d < date.today() else _FX_TTL_LATEST
+    if key in _FX_CACHE:
+        ts, val = _FX_CACHE[key]
+        if now - ts < ttl:
+            return val
+    val = provider.fetch_fx_to_hkd(currency, d)
+    _FX_CACHE[key] = (now, val)
+    return val
+
+
 def refresh_all(db: Session) -> dict:
-    """Pull latest closes for every instrument, upsert snapshots."""
+    """Pull latest closes for every instrument, upsert snapshots.
+
+    Price fetches run concurrently (ThreadPoolExecutor) — the old serial
+    loop took up to 15s * N instruments on timeouts. DB upserts stay
+    sequential in the calling thread (SQLite-safe).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
     provider = get_provider()
     instruments = db.query(Instrument).all()
+
+    def _fetch(inst) -> tuple:
+        try:
+            return inst, provider.fetch_close(inst.symbol)
+        except Exception:
+            return inst, None
+
+    fetched: dict[int, tuple | None] = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for inst, res in ex.map(_fetch, instruments):
+            fetched[inst.id] = (inst, res)
+
     updated, failed = [], []
     for inst in instruments:
-        res = provider.fetch_close(inst.symbol)
+        _inst, res = fetched[inst.id]
         if res is None:
             failed.append(inst.symbol)
             continue

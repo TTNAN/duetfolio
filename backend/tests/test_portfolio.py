@@ -48,7 +48,7 @@ def test_p0_4_oversell_rejected(db):
     from app.api.routes import create_transaction
     from app.schemas.schemas import TransactionCreate
     from app.services import market as mk
-    mk.fetch_fx_to_hkd_on = lambda *a: 7.85  # no network in tests
+    mk.fetch_fx_to_hkd = lambda *a: 7.85  # no network in tests
     inst = add_instrument(db)
     add_txn(db, inst, "buy", 60, 10.0, date=date(2026, 1, 1))
     with pytest.raises(HTTPException) as exc:
@@ -121,3 +121,66 @@ def test_fx_gap_hides_totals(db):
         assert s.fx_stale == ["USD"]
     finally:
         pf2._fx_rates = old
+
+
+def test_history_values_from_snapshots(db):
+    """History = qty-on-day x carried-forward close, converted to base."""
+    from datetime import date as d
+    a = add_instrument(db, "AAA", "USD", "US")
+    add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 1))
+    add_price(db, a, 110.0, date=d(2026, 1, 5))
+    add_price(db, a, 120.0, date=d(2026, 1, 10))
+    pts = pf.portfolio_history(db, base="HKD")
+    assert [(p.date, p.value) for p in pts] == [
+        (d(2026, 1, 5), round(10 * 110.0 * 7.85, 2)),
+        (d(2026, 1, 10), round(10 * 120.0 * 7.85, 2)),
+    ]
+
+
+def test_history_carry_forward_and_sell(db):
+    """Missing days carry the last close; sells reduce quantity mid-series."""
+    from datetime import date as d
+    a = add_instrument(db, "AAA", "HKD", "HK")
+    add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 1))
+    add_txn(db, a, "sell", 4, 100.0, date=d(2026, 1, 8))
+    add_price(db, a, 100.0, date=d(2026, 1, 5))
+    add_price(db, a, 110.0, date=d(2026, 1, 10))
+    pts = pf.portfolio_history(db, base="HKD")
+    assert [(p.date, p.value) for p in pts] == [
+        (d(2026, 1, 5), 10 * 100.0),   # 10 shares @100
+        (d(2026, 1, 10), 6 * 110.0),   # 6 shares @110 after the sell
+    ]
+
+
+def test_xirr_uses_latest_price_date_not_today(db):
+    """Terminal XIRR cashflow is dated at the latest price, not today,
+    so stale prices don't inflate the annualized rate."""
+    from datetime import date as d, timedelta
+    a = add_instrument(db, "AAA", "HKD", "HK")
+    add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 1))
+    old = d.today() - timedelta(days=30)
+    add_price(db, a, 110.0, date=old)
+    s = pf.portfolio_summary(db, base="HKD")
+    # XIRR with terminal dated at `old` must equal the manual calc
+    from app.services.xirr import xirr as calc
+    expect = calc([(d(2026, 1, 1), -1000.0), (old, 1100.0)])
+    # note: summary rounds XIRR to 4 decimals
+    assert s.xirr is not None and abs(s.xirr - expect) < 1e-4
+    # sanity: dating the terminal at today instead would give a lower rate
+    wrong = calc([(d(2026, 1, 1), -1000.0), (d.today(), 1100.0)])
+    assert abs(wrong - expect) > 1e-6
+
+
+def test_history_fx_gap_gives_none(db):
+    """When FX is unavailable, history points are None rather than wrong."""
+    from datetime import date as d
+    pf._fx_rates = lambda: {"HKD": 1.0, "USD": None, "CNY": None}
+    try:
+        a = add_instrument(db, "AAA", "USD", "US")
+        add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 1))
+        add_price(db, a, 110.0, date=d(2026, 1, 5))
+        pts = pf.portfolio_history(db, base="HKD")
+        assert len(pts) == 1 and pts[0].value is None
+    finally:
+        from tests.conftest import pf as _pf  # restore fixed rates
+        _pf._fx_rates = lambda: {"HKD": 1.0, "USD": 7.85, "CNY": 1.09}

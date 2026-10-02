@@ -7,7 +7,7 @@ Design notes (deliberate scope choices):
 - `Instrument.symbol` is stored as a Yahoo Finance ticker (e.g. "SGOV",
   "03152.HK") so the price pipeline needs no symbol translation layer.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
@@ -24,7 +24,7 @@ class Instrument(Base):
     market = Column(String(8), nullable=False, default="US")      # US | HK
     currency = Column(String(8), nullable=False, default="USD")   # USD | HKD
     asset_type = Column(String(16), nullable=False, default="etf")  # stock | etf | fund
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     transactions = relationship("Transaction", back_populates="instrument", cascade="all, delete-orphan")
     prices = relationship("PriceSnapshot", back_populates="instrument", cascade="all, delete-orphan")

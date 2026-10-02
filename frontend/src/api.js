@@ -16,6 +16,7 @@ async function req(path, opts = {}) {
 export const api = {
   health: () => req('/health'),
   summary: (base = 'HKD') => req(`/portfolio/summary?base=${base}`),
+  history: (base = 'HKD') => req(`/portfolio/history?base=${base}`),
   instruments: () => req('/instruments'),
   addInstrument: (body) => req('/instruments', { method: 'POST', body: JSON.stringify(body) }),
   deleteInstrument: (id) => req(`/instruments/${id}`, { method: 'DELETE' }),

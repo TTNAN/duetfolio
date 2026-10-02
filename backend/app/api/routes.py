@@ -6,11 +6,11 @@ from app import config
 from app.database import get_db
 from app.models.models import Instrument, Transaction
 from app.schemas.schemas import (
-    HoldingOut, InstrumentCreate, InstrumentOut, PortfolioSummary,
+    HistoryPoint, HoldingOut, InstrumentCreate, InstrumentOut, PortfolioSummary,
     TransactionCreate, TransactionOut,
 )
 from app.services import market
-from app.services.portfolio import compute_holdings, latest_price, portfolio_summary
+from app.services.portfolio import compute_holdings, latest_price, portfolio_history, portfolio_summary
 
 router = APIRouter()
 
@@ -50,6 +50,8 @@ def delete_instrument(instrument_id: int, db: Session = Depends(get_db)):
 @router.get("/transactions", response_model=list[TransactionOut])
 def list_transactions(
     instrument_id: int | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
     q = db.query(Transaction, Instrument.symbol).join(
@@ -58,6 +60,7 @@ def list_transactions(
     if instrument_id:
         q = q.filter(Transaction.instrument_id == instrument_id)
     q = q.order_by(Transaction.date.desc(), Transaction.id.desc())
+    q = q.offset(offset).limit(limit)
     return [
         TransactionOut(
             id=t.id, instrument_id=t.instrument_id, type=t.type,
@@ -82,7 +85,7 @@ def create_transaction(body: TransactionCreate, db: Session = Depends(get_db)):
                 400, f"Oversell: holding {held:g}, tried to sell {body.quantity:g}")
     # capture the FX rate of the transaction date so historical cashflows
     # (XIRR) aren't polluted by later FX moves; None = fall back to current
-    fx_to_hkd = market.fetch_fx_to_hkd_on(inst.currency, body.date)
+    fx_to_hkd = market.fetch_fx_to_hkd(inst.currency, body.date)
     t = Transaction(**body.model_dump(), fx_to_hkd=fx_to_hkd)
     db.add(t)
     db.commit()
@@ -110,6 +113,14 @@ def get_summary(
     db: Session = Depends(get_db),
 ):
     return portfolio_summary(db, base=base)
+
+
+@router.get("/portfolio/history", response_model=list[HistoryPoint])
+def get_history(
+    base: str = Query(default=config.BASE_CURRENCY, pattern="^(HKD|USD|CNY)$"),
+    db: Session = Depends(get_db),
+):
+    return portfolio_history(db, base=base)
 
 
 @router.get("/portfolio/holdings", response_model=list[HoldingOut])
