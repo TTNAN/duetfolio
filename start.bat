@@ -1,4 +1,6 @@
 @echo off
+set LAUNCHER_VER=2026-10-02d
+echo [duetfolio launcher %LAUNCHER_VER%] %~f0
 REM duetfolio one-click launcher (Windows).
 REM Starts the backend, which also serves the built frontend dashboard.
 REM Just double-click this file. (English-only on purpose: zero encoding issues on any Windows.)
