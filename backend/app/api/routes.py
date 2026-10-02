@@ -21,7 +21,8 @@ router = APIRouter()
 
 @router.get("/health")
 def health():
-    return {"ok": True, "base_currency": config.BASE_CURRENCY}
+    return {"ok": True, "base_currency": config.BASE_CURRENCY,
+            "market_provider": config.MARKET_PROVIDER}
 
 
 # ---- instruments ----

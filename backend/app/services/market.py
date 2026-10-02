@@ -88,14 +88,32 @@ class YFinanceProvider(BaseProvider):
     def fetch_fx_to_hkd(self, currency: str, d: date | None = None) -> float | None:
         if currency == "HKD":
             return 1.0
+        result = None
         if currency == "USD":
-            return _hist_close("HKD=X", d)
-        if currency == "CNY":
+            result = _hist_close("HKD=X", d)
+        elif currency == "CNY":
             usd_hkd = _hist_close("HKD=X", d)
             usd_cny = _hist_close("CNY=X", d)
             if usd_hkd and usd_cny:
-                return usd_hkd / usd_cny
-            return None
+                result = usd_hkd / usd_cny
+        # Frankfurter fallback for latest rates when yfinance is unreachable
+        # (e.g. Yahoo blocked). Latest only; historical still needs yfinance.
+        if result is None and d is None:
+            result = _frankfurter_fx_to_hkd(currency)
+        return result
+
+
+def _frankfurter_fx_to_hkd(currency: str) -> float | None:
+    """Latest HKD per 1 unit of currency via Frankfurter API (free, no key)."""
+    if currency == "HKD":
+        return 1.0
+    try:
+        url = ("https://api.frankfurter.app/latest?from="
+               + urllib.parse.quote(currency) + "&to=HKD")
+        data = _http_get_json(url) or {}
+        rate = (data.get("rates") or {}).get("HKD")
+        return float(rate) if rate else None
+    except Exception:
         return None
 
 

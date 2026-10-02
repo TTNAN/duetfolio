@@ -3,6 +3,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Transactions from './pages/Transactions.jsx';
 import Instruments from './pages/Instruments.jsx';
 import { useLang } from './i18n.js';
+import { api } from './api.js';
 
 function initTheme() {
   try {
@@ -17,7 +18,14 @@ export default function App() {
   const [reloadKey, setReloadKey] = useState(0);
   const { lang, setLang, t } = useLang();
   const [theme, setTheme] = useState(initTheme);
+  const [provider, setProvider] = useState('yfinance');
   const reload = () => setReloadKey((k) => k + 1);
+
+  useEffect(() => {
+    api.health().then((h) => {
+      if (h && h.market_provider) setProvider(h.market_provider);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -72,7 +80,10 @@ export default function App() {
         {tab === 'instruments' && <Instruments onChange={reload} />}
       </main>
       <footer className="footer">
-        {t.footer}
+        {t.footerTpl(
+          t.providerNames[provider] || provider,
+          t.providerNames[provider === 'eastmoney' ? 'yfinance' : 'eastmoney']
+        )}
       </footer>
     </div>
   );

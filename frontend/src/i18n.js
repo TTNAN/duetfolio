@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 const STRINGS = {
   en: {
     brandSub: 'US + HK portfolio tracker',
-    footer: 'duetfolio · FastAPI + React · prices via East Money (Yahoo Finance as backup)',
+    providerNames: { yfinance: 'Yahoo Finance', eastmoney: 'East Money' },
+    footerTpl: (p, b) => `duetfolio · FastAPI + React · prices via ${p} (${b} as backup)`,
     tabs: { dashboard: '📊 Dashboard', transactions: '🧾 Transactions', instruments: '🏷 Instruments' },
     langBtn: '中文',
     themeLight: '浅色模式',
@@ -107,7 +108,8 @@ const STRINGS = {
   },
   zh: {
     brandSub: '美股 + 港股组合追踪',
-    footer: 'duetfolio · FastAPI + React · 行情来自东方财富（雅虎财经为备选）',
+    providerNames: { yfinance: '雅虎财经', eastmoney: '东方财富' },
+    footerTpl: (p, b) => `duetfolio · FastAPI + React · 行情来自${p}（${b}为备选）`,
     tabs: { dashboard: '📊 仪表盘', transactions: '🧾 流水', instruments: '🏷 标的' },
     langBtn: 'EN',
     themeLight: 'Light mode',
