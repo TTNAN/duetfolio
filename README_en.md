@@ -50,7 +50,7 @@ For HK stocks, append `.HK` (note: Yahoo drops leading zeros, so `03152` becomes
 
 (`instrument_id` is the `id` from step 1's response; for dividends use `"type": "dividend"` — then `quantity × price` = dividend amount received and `fee` = withholding tax/fees, deducted from the dividend.)
 
-**Step 4: see the total** — open http://127.0.0.1:8000/api/portfolio/summary?base=HKD for total value, P&L and XIRR in HKD.
+**Step 4: see the total** — open [http://127.0.0.1:8000/api/portfolio/summary?base=HKD](http://127.0.0.1:8000/api/portfolio/summary?base=HKD) for total value, P&L and XIRR in HKD.
 
 > Day to day, there's only one thing to do: hit `POST /api/prices/refresh`, then check the summary.
 

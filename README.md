@@ -50,7 +50,7 @@
 
 （`instrument_id` 是第一步返回里的 `id`；分红就把 `type` 改成 `dividend`，此时 `quantity × price` = 分红到账金额，`fee` 填预扣税/手续费，会从分红里扣除）
 
-**第四步：看总数** — 浏览器打开 http://127.0.0.1:8000/api/portfolio/summary?base=HKD，就能看到按港币折算的总市值、盈亏和 XIRR
+**第四步：看总数** — 浏览器打开 [http://127.0.0.1:8000/api/portfolio/summary?base=HKD](http://127.0.0.1:8000/api/portfolio/summary?base=HKD)，就能看到按港币折算的总市值、盈亏和 XIRR
 
 > 之后每天只需要做一件事：调一下 `POST /api/prices/refresh` 刷新行情，再看 summary。
 
