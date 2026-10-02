@@ -119,7 +119,7 @@ npm install && npm run dev
 
 | Variable | Default | Notes |
 |---|---|---|
-| `MARKET_PROVIDER` | `yfinance` | primary quote source; `eastmoney` switches, the other becomes automatic backup |
+| `MARKET_PROVIDER` | `yfinance` | primary quote source; `eastmoney` switches. Missed symbols are retried in `yfinance → eastmoney → sina` order |
 | `BASE_CURRENCY` | `HKD` | base currency |
 | `DATABASE_URL` | local SQLite | `postgresql+psycopg2://…` for Postgres |
 | `CORS_ORIGINS` | `*` | frontend CORS |

@@ -318,21 +318,25 @@ def test_refresh_falls_back_to_backup_provider(db, monkeypatch):
                         lambda self, sym: None)
     monkeypatch.setattr(m.YFinanceProvider, "fetch_close",
                         lambda self, sym: (d(2026, 10, 2), 100.5, 100.4))
+    monkeypatch.setattr(m.SinaProvider, "fetch_close",
+                        lambda self, sym: None)
     monkeypatch.setattr(m.config, "MARKET_PROVIDER", "eastmoney")
 
     res = m.refresh_all(db)
     assert res["provider"] == "eastmoney"
-    assert res["fallback"] == "yfinance"
+    assert res["fallbacks"] == ["yfinance", "sina"]
     assert res["updated"] == ["SGOV"] and not res["failed"]
     snap = db.query(PriceSnapshot).filter_by(instrument_id=inst.id).one()
     assert snap.close == 100.5 and snap.source == "yfinance"
 
 
-def test_refresh_both_providers_fail(db, monkeypatch):
+def test_refresh_all_providers_fail(db, monkeypatch):
     from app.services import market as m
 
     add_instrument(db, "SGOV", "USD", "US")
     monkeypatch.setattr(m.EastMoneyProvider, "fetch_close",
+                        lambda self, sym: None)
+    monkeypatch.setattr(m.SinaProvider, "fetch_close",
                         lambda self, sym: None)
     monkeypatch.setattr(m.YFinanceProvider, "fetch_close",
                         lambda self, sym: (_ for _ in ()).throw(RuntimeError("down")))

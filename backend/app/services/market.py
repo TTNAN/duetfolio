@@ -6,17 +6,20 @@ optional). Callers (refresh_all, portfolio engine) never touch a provider
 directly — they use the module-level fetch_close / fetch_usd_to_hkd /
 fetch_fx_to_hkd, which delegate to the active provider.
 
-Quote fetching (refresh_all) always has a backup: if the primary provider
-returns nothing for a symbol, the other provider is tried before the symbol
-is reported as failed. The snapshot records which provider actually
-supplied each quote.
+Quote fetching (refresh_all) always has backups: providers are tried in
+order until one returns a quote — primary first, then the others in a fixed
+preference order. The snapshot records which provider actually supplied
+each quote.
 
+- yfinance: official-ish, zero-setup, ~15min delayed quotes.
 - eastmoney: unofficial push2.eastmoney.com API. Closer to real-time for
   CN-based investors and needs no API key, but it is undocumented and may
   break without notice. Any failure degrades to None (reported as "failed").
-- yfinance: official-ish, zero-setup, ~15min delayed quotes.
+- sina: Sina Finance hq.sinajs.cn, designed for mainland China networks
+  where Yahoo is blocked. Thinner fields; last resort.
 """
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -221,6 +224,70 @@ class EastMoneyProvider(BaseProvider):
             return None
 
 
+class SinaProvider(BaseProvider):
+    """Sina Finance (新浪财经) hq.sinajs.cn quote API.
+
+    Designed for mainland China networks where Yahoo is blocked. No API key;
+    requires a Referer header and GBK decoding.
+    - US: "TSLA" -> gb_tsla; fields[1] latest, fields[4] change amount,
+      prev close = latest - change; fields[3] datetime.
+    - HK: "3152.HK" -> hk03152 (5-digit, zero-padded); fields[6] latest,
+      fields[3] prev close; fields[17] date.
+    FX is not served here (Frankfurter covers it); returns None.
+    """
+    name = "sina"
+
+    def _sina_symbol(self, symbol: str) -> str | None:
+        s = symbol.upper()
+        if s.endswith(".HK"):
+            return "hk" + s[:-3].zfill(5)
+        if "." not in s:
+            return "gb_" + s.lower()
+        return None
+
+    def fetch_close(self, symbol: str) -> tuple[date, float, float | None] | None:
+        sina_sym = self._sina_symbol(symbol)
+        if not sina_sym:
+            return None
+        try:
+            req = urllib.request.Request(
+                "https://hq.sinajs.cn/list=" + sina_sym,
+                headers={"Referer": "https://finance.sina.com.cn"})
+            with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
+                text = resp.read().decode("gbk", errors="ignore")
+            m = re.search(r'"([^"]*)"', text)
+            if not m:
+                return None
+            f = m.group(1).split(",")
+            if sina_sym.startswith("gb_"):
+                if len(f) < 5 or not f[1]:
+                    return None
+                price = float(f[1])
+                if price <= 0:
+                    return None
+                chg = float(f[4]) if f[4] else 0.0
+                prev = price - chg if chg else None
+                d = date.fromisoformat(f[3].split(" ")[0])
+                return d, price, prev
+            else:
+                if len(f) < 18 or not f[6]:
+                    return None
+                price = float(f[6])
+                if price <= 0:
+                    return None
+                prev = float(f[3]) if f[3] else None
+                d = date.fromisoformat(f[17].replace("/", "-"))
+                return d, price, prev if prev and prev > 0 else None
+        except Exception:
+            return None
+
+    def fetch_usd_to_hkd(self) -> float | None:
+        return None
+
+    def fetch_fx_to_hkd(self, currency: str, d: date | None = None) -> float | None:
+        return None
+
+
 def get_provider() -> BaseProvider:
     if config.MARKET_PROVIDER == "eastmoney":
         return EastMoneyProvider()
@@ -269,13 +336,15 @@ def refresh_all(db: Session) -> dict:
     from concurrent.futures import ThreadPoolExecutor
 
     primary = get_provider()
-    fallback = (YFinanceProvider() if primary.name == "eastmoney"
-                else EastMoneyProvider())
+    # Everyone else becomes a fallback, in a fixed preference order.
+    # Sina last: it works in CN but its fields are thinner than the others.
+    _all = [YFinanceProvider(), EastMoneyProvider(), SinaProvider()]
+    chain = [primary] + [p for p in _all if p.name != primary.name]
     instruments = db.query(Instrument).all()
 
     def _fetch(inst) -> tuple:
-        """Primary first, backup provider second. Returns (inst, result, source)."""
-        for prov in (primary, fallback):
+        """Try each provider in order. Returns (inst, result, source)."""
+        for prov in chain:
             try:
                 res = prov.fetch_close(inst.symbol)
             except Exception:
@@ -314,7 +383,8 @@ def refresh_all(db: Session) -> dict:
                                  fetched_at=now))
         updated.append(inst.symbol)
     db.commit()
-    return {"provider": primary.name, "fallback": fallback.name,
+    return {"provider": primary.name,
+            "fallbacks": [p.name for p in chain[1:]],
             "updated": updated, "failed": failed}
 
 

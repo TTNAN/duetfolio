@@ -119,7 +119,7 @@ npm install && npm run dev
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `MARKET_PROVIDER` | `yfinance` | 主行情源；`eastmoney` 可切换，另一方自动成为备选 |
+| `MARKET_PROVIDER` | `yfinance` | 主行情源；`eastmoney` 可切换。抓不到的标的按 `yfinance → eastmoney → sina（新浪）` 顺序自动补抓 |
 | `BASE_CURRENCY` | `HKD` | 本币 |
 | `DATABASE_URL` | 本地 SQLite | `postgresql+psycopg2://…` 切 Postgres |
 | `CORS_ORIGINS` | `*` | 前端跨域 |
