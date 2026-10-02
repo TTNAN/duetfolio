@@ -1,5 +1,5 @@
 @echo off
-set LAUNCHER_VER=2026-10-02d
+set LAUNCHER_VER=2026-10-02e
 echo [duetfolio launcher %LAUNCHER_VER%] %~f0
 REM duetfolio one-click launcher (Windows).
 REM Starts the backend, which also serves the built frontend dashboard.
@@ -17,11 +17,11 @@ if errorlevel 1 (
 )
 if not exist .venv (
   echo [1/4] Creating virtual environment...
-  python -m venv .venv
+  call python -m venv .venv
 )
 call .venv\Scripts\activate.bat
 echo [2/4] Installing backend dependencies (slow on first run)...
-python -m pip install -q -r requirements.txt
+call python -m pip install -q -r requirements.txt
 
 cd /d "%~dp0frontend"
 where node >nul 2>nul
@@ -62,7 +62,7 @@ start http://127.0.0.1:8000
 cd /d "%~dp0backend"
 call .venv\Scripts\activate.bat
 echo Starting server (this window stays open)...
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+call python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 echo.
 echo [stopped] The server has exited. Press any key to close this window.
 pause >nul
