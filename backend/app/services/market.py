@@ -319,28 +319,43 @@ def _yahoo_search(query: str) -> list[dict]:
 
 def _eastmoney_search(query: str) -> list[dict]:
     """East Money suggest API. Keeps HK (MktNum 116) and US (UsStock) only —
-    mainland funds/A-shares are outside this app's scope."""
-    url = ("https://searchapi.eastmoney.com/api/suggest/get?input="
-           + urllib.parse.quote(query) + "&type=14")
-    data = _http_get_json(url, timeout=_SEARCH_TIMEOUT) or {}
-    items = (data.get("QuotationCodeTable") or {}).get("Data") or []
+    mainland funds/A-shares are outside this app's scope.
+
+    Two queries run concurrently: an unfiltered one (catches US stocks and
+    exact code matches) plus an HK-only one (mktnum=116). The HK-only query
+    matters because mainland funds crowd HK ETFs out of the ranking — e.g.
+    "博时" would otherwise never surface 03152 (A博时港元).
+    """
+    base = ("https://searchapi.eastmoney.com/api/suggest/get?input="
+            + urllib.parse.quote(query) + "&type=14")
+    urls = [base + "&count=50", base + "&mktnum=116&count=50"]
+
+    def _fetch(url: str) -> dict:
+        return _http_get_json(url, timeout=_SEARCH_TIMEOUT) or {}
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        datas = list(ex.map(_fetch, urls))
+
     out = []
-    for i in items:
-        if i.get("MktNum") == "116":
-            code = str(i.get("Code") or "").lstrip("0") or "0"
-            out.append({"symbol": f"{code}.HK",
-                        "name": str(i.get("Name") or ""),
-                        "market": "HK", "currency": "HKD",
-                        "source": "eastmoney"})
-        elif i.get("Classify") == "UsStock":
-            out.append({"symbol": str(i.get("Code") or "").upper(),
-                        "name": str(i.get("Name") or ""),
-                        "market": "US", "currency": "USD",
-                        "source": "eastmoney"})
+    for data in datas:
+        items = (data.get("QuotationCodeTable") or {}).get("Data") or []
+        for i in items:
+            if i.get("MktNum") == "116":
+                code = str(i.get("Code") or "").lstrip("0") or "0"
+                out.append({"symbol": f"{code}.HK",
+                            "name": str(i.get("Name") or ""),
+                            "market": "HK", "currency": "HKD",
+                            "source": "eastmoney"})
+            elif i.get("Classify") == "UsStock":
+                out.append({"symbol": str(i.get("Code") or "").upper(),
+                            "name": str(i.get("Name") or ""),
+                            "market": "US", "currency": "USD",
+                            "source": "eastmoney"})
     return out
 
 
-def search_instruments(query: str, limit: int = 8) -> list[dict]:
+def search_instruments(query: str, limit: int = 20) -> list[dict]:
     """Candidate instruments for the add-instrument search box.
 
     Queries Yahoo and East Money concurrently, dedupes by normalized

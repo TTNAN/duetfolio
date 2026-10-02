@@ -275,3 +275,32 @@ def test_csv_preview_table_and_ibkr():
     r2 = parse_csv(ibkr)
     row2 = r2["rows"][0]
     assert row2["status"] == "ok" and row2["symbol"] == "AAPL" and row2["type"] == "sell"
+
+
+def test_search_hk_not_crowded_out(monkeypatch):
+    """'博时' must surface 3152.HK: the mktnum=116 query rescues HK ETFs
+    that mainland funds crowd out of the unfiltered ranking."""
+    from app.services import market as m
+
+    def fake_get(url, timeout=None):
+        if "mktnum=116" in url:
+            items = [
+                {"Code": "02832", "Name": "博时科创50", "MktNum": "116"},
+                {"Code": "03152", "Name": "A博时港元", "MktNum": "116"},
+            ]
+        elif "query1.finance.yahoo.com" in url:
+            return {}
+        else:
+            items = [
+                {"Code": "160505", "Name": "博时主题LOF", "MktNum": "0", "Classify": "Fund"},
+                {"Code": "02832", "Name": "博时科创50", "MktNum": "116"},
+            ]
+        return {"QuotationCodeTable": {"Data": items}}
+
+    monkeypatch.setattr(m, "_http_get_json", fake_get)
+    res = m.search_instruments("博时")
+    syms = [r["symbol"] for r in res]
+    assert "3152.HK" in syms
+    assert "2832.HK" in syms
+    assert syms.count("2832.HK") == 1  # deduped across the two queries
+    assert not any(r["market"] not in ("HK", "US") for r in res)
