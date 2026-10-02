@@ -3,7 +3,7 @@ never stored. Valuation converts everything to the base currency."""
 from sqlalchemy.orm import Session
 
 from app import config
-from app.models.models import Instrument, PriceSnapshot, Transaction
+from app.models.models import CashFlow, Instrument, PriceSnapshot, Transaction
 from app.schemas.schemas import HistoryPoint, HoldingOut, PortfolioSummary
 from app.services import market
 from app.services.xirr import xirr
@@ -102,11 +102,18 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
     total_value = 0.0
     total_invested = 0.0
     realized_base = 0.0
+    dividends_12m = 0.0
     has_price = False
     latest_price_date = None
+    quotes_as_of = None
+    quotes_source = None
 
     # cashflows for XIRR: (date, amount in base currency); buys negative
     cashflows: list[tuple] = []
+
+    from datetime import date as date_cls
+    from datetime import timedelta
+    div_cutoff = date_cls.today() - timedelta(days=365)
 
     for h in compute_holdings(db):
         inst = h["instrument"]
@@ -119,9 +126,13 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
 
         mv = pnl = mv_base = pnl_base = None
         price_date = None
+        prev_close = day_chg = day_chg_pct = day_chg_base = None
         if snap:
             has_price = True
             price_date = snap.date
+            if snap.fetched_at and (quotes_as_of is None or snap.fetched_at > quotes_as_of):
+                quotes_as_of = snap.fetched_at
+                quotes_source = snap.source
             if latest_price_date is None or price_date > latest_price_date:
                 latest_price_date = price_date
             mv = h["quantity"] * snap.close
@@ -132,6 +143,13 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
                 fx_gaps.add(inst.currency)
             else:
                 total_value += mv_base
+            prev_close = snap.prev_close
+            if prev_close:
+                day_chg = snap.close - prev_close
+                day_chg_pct = day_chg / prev_close if prev_close else None
+                day_chg_base = _to_base(day_chg * h["quantity"], inst.currency, base, rates)
+                if day_chg_base is None:
+                    fx_gaps.add(inst.currency)
         else:
             stale.append(inst.symbol)
 
@@ -155,6 +173,8 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
                 cashflows.append((t.date, amt_base - fee_base))
             elif t.type == "dividend":
                 cashflows.append((t.date, amt_base - fee_base))
+                if t.date >= div_cutoff:
+                    dividends_12m += amt_base - fee_base
 
         holdings_out.append(HoldingOut(
             instrument_id=inst.id, symbol=inst.symbol, name=inst.name,
@@ -166,6 +186,10 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
             unrealized_pnl=round(pnl, 2) if pnl is not None else None,
             market_value_base=round(mv_base, 2) if mv_base is not None else None,
             unrealized_pnl_base=round(pnl_base, 2) if pnl_base is not None else None,
+            prev_close=round(prev_close, 4) if prev_close else None,
+            day_change=round(day_chg, 4) if day_chg is not None else None,
+            day_change_pct=round(day_chg_pct, 4) if day_chg_pct is not None else None,
+            day_change_base=round(day_chg_base, 2) if day_chg_base is not None else None,
         ))
 
         # realized P&L converted at each event's transaction-date FX
@@ -179,11 +203,26 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
             else:
                 realized_base += b
 
+    # cash in/out of the account: deposits are investor outflows (negative),
+    # withdrawals are inflows (positive). Converted at today's FX — cash legs
+    # don't store historical FX (documented approximation).
+    for cf in db.query(CashFlow).order_by(CashFlow.date).all():
+        amt_base = _to_base(cf.amount, cf.currency, base, rates)
+        if amt_base is None:
+            fx_gaps.add(cf.currency)
+            continue
+        cashflows.append((cf.date, -amt_base if cf.direction == "in" else amt_base))
+
+    # second pass: weight of each holding (needs the final total_value)
+    if total_value > 0:
+        for ho in holdings_out:
+            if ho.market_value_base:
+                ho.weight_pct = round(ho.market_value_base / total_value * 100, 1)
+
     # terminal value for XIRR — dated at the latest price date, NOT today:
     # annualizing over (today - first_cashflow) when prices are days old
     # inflates the rate. Only computed when every holding has a fresh price,
     # otherwise the IRR would be built on a partial terminal value.
-    from datetime import date as date_cls
     xirr_value = None
     # totals are only trustworthy with full prices AND full FX coverage;
     # a partial total is worse than no total.
@@ -209,6 +248,9 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         holdings=holdings_out,
         price_stale=stale,
         fx_stale=sorted(fx_gaps),
+        quotes_as_of=quotes_as_of,
+        quotes_source=quotes_source,
+        dividends_12m=round(dividends_12m, 2) if not fx_gaps else None,
     )
 
 

@@ -22,8 +22,20 @@ export const api = {
   instruments: () => req('/instruments'),
   addInstrument: (body) => req('/instruments', { method: 'POST', body: JSON.stringify(body) }),
   deleteInstrument: (id) => req(`/instruments/${id}`, { method: 'DELETE' }),
-  transactions: () => req('/transactions'),
+  transactions: (instrumentId) => req(`/transactions${instrumentId ? `?instrument_id=${instrumentId}` : ''}`),
   addTransaction: (body) => req('/transactions', { method: 'POST', body: JSON.stringify(body) }),
+  updateTransaction: (id, body) => req(`/transactions/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteTransaction: (id) => req(`/transactions/${id}`, { method: 'DELETE' }),
+  importPreview: async (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch((import.meta.env.VITE_API_URL || '') + '/api/transactions/import/preview', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`);
+    return res.json();
+  },
+  importConfirm: (rows) => req('/transactions/import', { method: 'POST', body: JSON.stringify({ rows }) }),
+  cash: () => req('/cash'),
+  addCash: (body) => req('/cash', { method: 'POST', body: JSON.stringify(body) }),
+  deleteCash: (id) => req(`/cash/${id}`, { method: 'DELETE' }),
   refreshPrices: () => req('/prices/refresh', { method: 'POST' }),
 };

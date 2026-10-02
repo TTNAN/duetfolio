@@ -52,7 +52,6 @@ export default function Transactions({ onChange }) {
   const [editing, setEditing] = useState(null); // transaction id in edit mode
   const [eform, setEform] = useState({});
   const [refetchFx, setRefetchFx] = useState(false);
-
   const startEdit = (tx) => {
     setEditing(tx.id);
     setEform({ type: tx.type, quantity: tx.quantity, price: tx.price, fee: tx.fee, date: tx.date, note: tx.note || '' });
@@ -168,6 +167,164 @@ export default function Transactions({ onChange }) {
           </tbody>
         </table>
       </div>
+      <CashCard onChange={onChange} />
+      <ImportCard onChange={onChange} />
+    </div>
+  );
+}
+
+function CashCard({ onChange }) {
+  const { t } = useLang();
+  const [list, setList] = useState([]);
+  const [form, setForm] = useState({ direction: 'in', amount: '', currency: 'HKD', date: today(), note: '' });
+  const [err, setErr] = useState('');
+
+  const load = async () => {
+    try { setList(await api.cash()); } catch (e) { setErr(String(e.message || e)); }
+  };
+  useEffect(() => { load(); }, []);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr('');
+    try {
+      await api.addCash({
+        direction: form.direction, amount: Number(form.amount),
+        currency: form.currency, date: form.date, note: form.note,
+      });
+      setForm({ ...form, amount: '', note: '' });
+      await load();
+      onChange && onChange();
+    } catch (e2) { setErr(String(e2.message || e2)); }
+  };
+
+  const remove = async (id) => {
+    if (!confirm(t.confirmDelTxn)) return;
+    await api.deleteCash(id);
+    await load();
+    onChange && onChange();
+  };
+
+  return (
+    <div className="card">
+      <h3>{t.cashTitle}</h3>
+      <form onSubmit={submit} className="form">
+        <div className="row2">
+          <label>{t.fDirection}
+            <select value={form.direction} onChange={set('direction')}>
+              <option value="in">{t.cashIn}</option>
+              <option value="out">{t.cashOut}</option>
+            </select>
+          </label>
+          <label>{t.fDate}<input type="date" value={form.date} onChange={set('date')} /></label>
+        </div>
+        <div className="row2">
+          <label>{t.fAmount}<input type="number" step="any" min="0" required value={form.amount} onChange={set('amount')} placeholder="10000" /></label>
+          <label>{t.fCcy}
+            <select value={form.currency} onChange={set('currency')}>
+              <option value="HKD">HKD</option>
+              <option value="USD">USD</option>
+              <option value="CNY">CNY</option>
+            </select>
+          </label>
+        </div>
+        <label>{t.fNote}<input value={form.note} onChange={set('note')} placeholder={t.optional} /></label>
+        <button className="btn primary" type="submit">{t.add}</button>
+      </form>
+      {err && <div className="error-text">{err}</div>}
+      <table className="tbl" style={{ marginTop: 12 }}>
+        <thead><tr><th>{t.hth.date}</th><th>{t.fDirection}</th><th>{t.fAmount}</th><th></th></tr></thead>
+        <tbody>
+          {list.map((c) => (
+            <tr key={c.id}>
+              <td>{c.date}</td>
+              <td><span className={`pill ${c.direction === 'in' ? 'buy' : 'sell'}`}>
+                {c.direction === 'in' ? t.cashIn : t.cashOut}
+              </span></td>
+              <td>{c.direction === 'in' ? '-' : '+'}{c.amount} {c.currency}</td>
+              <td><button className="link danger" onClick={() => remove(c.id)}>{t.del}</button></td>
+            </tr>
+          ))}
+          {list.length === 0 && <tr><td colSpan="4" className="muted">{t.noCash}</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ImportCard({ onChange }) {
+  const { t } = useLang();
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [done, setDone] = useState('');
+
+  const onFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setBusy(true); setErr(''); setDone(''); setPreview(null);
+    try {
+      setPreview(await api.importPreview(f));
+    } catch (e2) { setErr(String(e2.message || e2)); }
+    finally { setBusy(false); e.target.value = ''; }
+  };
+
+  const confirm = async () => {
+    const rows = (preview?.rows || []).filter((r) => r.status === 'ok');
+    if (!rows.length) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await api.importConfirm(rows);
+      setDone(`${t.importDone}: +${r.imported}, errors ${r.errors.length}`);
+      setPreview(null);
+      onChange && onChange();
+    } catch (e2) { setErr(String(e2.message || e2)); }
+    finally { setBusy(false); }
+  };
+
+  const rows = preview?.rows || [];
+  const okCount = rows.filter((r) => r.status === 'ok').length;
+
+  return (
+    <div className="card">
+      <h3>{t.importTitle}</h3>
+      <div className="muted small" style={{ marginBottom: 8 }}>{t.importHint}</div>
+      <label className="btn">
+        {t.chooseFile}
+        <input type="file" accept=".csv" onChange={onFile} style={{ display: 'none' }} />
+      </label>
+      {busy && <div className="muted" style={{ marginTop: 8 }}>{t.histLoading}</div>}
+      {err && <div className="error-text">{err}</div>}
+      {done && <div className="ok-text">{done}</div>}
+      {preview && (
+        <div style={{ marginTop: 12 }}>
+          <div className="muted small" style={{ marginBottom: 6 }}>
+            {preview.format} · {okCount} / {rows.length} OK
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            <table className="tbl">
+              <thead><tr><th>#</th><th>{t.hth.date}</th><th>{t.hth.symbol}</th><th>{t.hth.type}</th><th>{t.hth.qty}</th><th>{t.hth.price}</th><th></th></tr></thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className={r.status === 'ok' ? '' : r.status === 'skip' ? 'muted' : 'error-row'}>
+                    <td>{r.lineno}</td>
+                    <td>{r.date || '—'}</td>
+                    <td><b>{r.symbol || '—'}</b></td>
+                    <td>{r.type ? (t.txnTypes[r.type] || r.type) : '—'}</td>
+                    <td>{r.quantity ?? '—'}</td>
+                    <td>{r.price ?? '—'}</td>
+                    <td className="muted small">{r.status === 'ok' ? '' : r.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn primary" style={{ marginTop: 8 }} disabled={!okCount || busy} onClick={confirm}>
+            {t.confirmImport} ({okCount})
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -73,6 +73,12 @@ XIRR is annualized — a 0.1% gain over 4 days annualizes to an extreme number. 
 **How fresh are the quotes?**
 Yahoo Finance is ~15min delayed. For closer to real-time, switch to the East Money source: close the backend window, run `$env:MARKET_PROVIDER="eastmoney"` in PowerShell first, then start (hint included in `start.bat`).
 
+**Can I import my broker's trade history?**
+Yes. On the Transactions page, "Import broker CSV" supports Futu / IBKR trade CSV exports (preview first, confirm to write; unknown tickers auto-create instruments).
+
+**How do I record deposits and withdrawals?**
+There's a "Cash" card below on the Transactions page: record deposits and withdrawals, and XIRR will treat them as money in/out — so the annualized return reflects "what this money earned", not just "what these tickers earned".
+
 **How is the net-worth curve drawn?**
 Each day's total = quantity held that day × that day's close. It only uses price snapshots already in the DB (never triggers a live fetch). Historical days are converted with today's FX rate (no historical FX is stored), so treat old absolute values as approximate — the shape is trustworthy.
 

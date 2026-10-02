@@ -3,7 +3,7 @@ import { useLang } from '../i18n.js';
 
 const COLORS = ['#4f8cff', '#ff6b6b', '#51cf66', '#fcc419', '#9775fa', '#3bc9db', '#ff922b', '#e599f7'];
 
-export default function Donut({ items }) {
+export default function Donut({ items, subLabel }) {
   const { t } = useLang();
   const total = items.reduce((s, i) => s + i.value, 0);
   if (!total) return <div className="donut-empty">{t.noValued}</div>;
@@ -34,7 +34,7 @@ export default function Donut({ items }) {
         <circle cx="90" cy="90" r={R} fill="none" stroke="#23232b" strokeWidth="26" />
         {segs}
         <text x="90" y="86" textAnchor="middle" className="donut-total">{items.length}</text>
-        <text x="90" y="104" textAnchor="middle" className="donut-sub">{t.positions}</text>
+        <text x="90" y="104" textAnchor="middle" className="donut-sub">{subLabel ?? t.positions}</text>
       </svg>
       <ul className="donut-legend">
         {items.map((it, idx) => (

@@ -1,15 +1,19 @@
 """REST API: instruments, transactions, portfolio, price refresh."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import date as date_cls
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app import config
 from app.database import get_db
-from app.models.models import Instrument, Transaction
+from app.models.models import CashFlow, Instrument, Transaction
 from app.schemas.schemas import (
-    HistoryPoint, HoldingOut, InstrumentCandidate, InstrumentCreate, InstrumentOut,
-    PortfolioSummary, TransactionCreate, TransactionOut, TransactionUpdate,
+    CashFlowCreate, CashFlowOut, HistoryPoint, HoldingOut, InstrumentCandidate,
+    InstrumentCreate, InstrumentOut, PortfolioSummary, TransactionCreate,
+    TransactionOut, TransactionUpdate,
 )
 from app.services import market
+from app.services.csvimport import parse_csv
 from app.services.portfolio import compute_holdings, latest_price, portfolio_history, portfolio_summary
 
 router = APIRouter()
@@ -157,6 +161,64 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+# ---- broker CSV import ----
+@router.post("/transactions/import/preview")
+async def import_preview(file: UploadFile = File(...)):
+    """Parse a broker CSV (Futu / IBKR / generic) -> row-by-row preview.
+
+    Nothing is written. The frontend shows the preview and posts back
+    {"rows": [...]} to /transactions/import for the confirmed rows.
+    """
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 5MB)")
+    return parse_csv(raw)
+
+
+@router.post("/transactions/import")
+def import_confirm(payload: dict, db: Session = Depends(get_db)):
+    """Import previewed rows. Unknown symbols auto-create instruments."""
+    rows = payload.get("rows") or []
+    ok_rows = [r for r in rows if r.get("status") == "ok"]
+    if not ok_rows:
+        raise HTTPException(400, "No importable rows")
+    inst_cache: dict[str, Instrument] = {
+        i.symbol: i for i in db.query(Instrument).all()
+    }
+    created_insts, imported, errors = 0, 0, []
+    for r in ok_rows:
+        try:
+            sym = r["symbol"]
+            inst = inst_cache.get(sym)
+            if not inst:
+                inst = Instrument(
+                    symbol=sym, name=r.get("name") or sym,
+                    market=r.get("market", "US"), currency=r.get("currency", "USD"),
+                    asset_type="stock",
+                )
+                db.add(inst)
+                db.flush()
+                inst_cache[sym] = inst
+                created_insts += 1
+            d = date_cls.fromisoformat(r["date"])
+            fx = market.fetch_fx_to_hkd(inst.currency, d)
+            db.add(Transaction(
+                instrument_id=inst.id, type=r["type"],
+                quantity=float(r["quantity"]), price=float(r["price"]),
+                fee=float(r.get("fee") or 0.0), date=d,
+                note="csv-import", fx_to_hkd=fx,
+            ))
+            imported += 1
+        except Exception as e:
+            errors.append({"lineno": r.get("lineno"), "reason": str(e)[:120]})
+    db.commit()
+    return {"imported": imported, "instruments_created": created_insts,
+            "errors": errors}
+
+
+# ---- cash flows ----
+
+
 # ---- portfolio ----
 @router.get("/portfolio/summary", response_model=PortfolioSummary)
 def get_summary(
@@ -187,3 +249,29 @@ def get_holdings(
 def refresh_prices(db: Session = Depends(get_db)):
     """Pull latest closes from Yahoo Finance for all instruments."""
     return market.refresh_all(db)
+
+
+# ---- cash flows ----
+@router.get("/cash", response_model=list[CashFlowOut])
+def list_cash(db: Session = Depends(get_db)):
+    return db.query(CashFlow).order_by(CashFlow.date.desc(), CashFlow.id.desc()).all()
+
+
+@router.post("/cash", response_model=CashFlowOut, status_code=201)
+def add_cash(body: CashFlowCreate, db: Session = Depends(get_db)):
+    if body.direction not in ("in", "out"):
+        raise HTTPException(400, "direction must be 'in' or 'out'")
+    cf = CashFlow(**body.model_dump())
+    db.add(cf)
+    db.commit()
+    db.refresh(cf)
+    return cf
+
+
+@router.delete("/cash/{cash_id}", status_code=204)
+def delete_cash(cash_id: int, db: Session = Depends(get_db)):
+    cf = db.get(CashFlow, cash_id)
+    if not cf:
+        raise HTTPException(404, "Cash flow not found")
+    db.delete(cf)
+    db.commit()

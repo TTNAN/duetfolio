@@ -227,3 +227,51 @@ def test_update_txn_oversell_rejected(db):
         raise AssertionError("should have raised")
     except HTTPException as e:
         assert e.status_code == 400
+
+
+def test_cash_flows_enter_xirr(db):
+    """Deposits are XIRR outflows (negative), withdrawals inflows."""
+    from datetime import date as d
+    from app.models.models import CashFlow
+    a = add_instrument(db, "AAA", "HKD", "HK")
+    db.add(CashFlow(date=d(2026, 1, 1), direction="in", amount=10000.0, currency="HKD"))
+    db.commit()
+    add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 2))
+    add_price(db, a, 110.0, date=d(2026, 6, 1))
+    s = pf.portfolio_summary(db, base="HKD")
+    from app.services.xirr import xirr as calc
+    expect = calc([(d(2026, 1, 1), -10000.0), (d(2026, 1, 2), -1000.0), (d(2026, 6, 1), 1100.0)])
+    assert s.xirr is not None and abs(s.xirr - expect) < 1e-4
+
+
+def test_day_change_fields(db):
+    """prev_close -> day change amount, pct, and base-currency P&L."""
+    from datetime import date as d
+    from app.models.models import PriceSnapshot
+    a = add_instrument(db, "AAA", "HKD", "HK")
+    add_txn(db, a, "buy", 10, 100.0, date=d(2026, 1, 1))
+    db.add(PriceSnapshot(instrument_id=a.id, date=d(2026, 3, 1), close=110.0,
+                         prev_close=100.0, source="test"))
+    db.commit()
+    s = pf.portfolio_summary(db, base="HKD")
+    h = s.holdings[0]
+    assert h.day_change == 10.0
+    assert abs(h.day_change_pct - 0.1) < 1e-9
+    assert h.day_change_base == 100.0  # 10 shares x 10
+    assert h.weight_pct == 100.0
+
+
+def test_csv_preview_table_and_ibkr():
+    from app.services.csvimport import parse_csv
+    futu = ("市场,证券代码,买卖方向,成交数量,成交价格,成交时间,手续费\n"
+            "HK,00700,买入,100,388.00,2026-09-01 09:31:00,15.00\n").encode("gbk")
+    r = parse_csv(futu)
+    assert r["format"] == "table"
+    row = r["rows"][0]
+    assert row["status"] == "ok" and row["symbol"] == "700.HK"
+    assert row["type"] == "buy" and row["quantity"] == 100.0
+    ibkr = ('Trades,Header,DataDiscriminator,Asset Category,Currency,Symbol,Date/Time,Quantity,T. Price,Comm/Fee,Exchange\n'
+            'Trades,Data,Order,Stocks,USD,AAPL,"2026-09-30, 13:00:00",-10,232.5,-1,NASDAQ\n').encode()
+    r2 = parse_csv(ibkr)
+    row2 = r2["rows"][0]
+    assert row2["status"] == "ok" and row2["symbol"] == "AAPL" and row2["type"] == "sell"

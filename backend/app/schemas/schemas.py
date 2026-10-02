@@ -78,6 +78,12 @@ class HoldingOut(BaseModel):
     # converted to base currency
     market_value_base: Optional[float] = None
     unrealized_pnl_base: Optional[float] = None
+    # day change (needs prev_close from the last refresh)
+    prev_close: Optional[float] = None       # in instrument currency
+    day_change: Optional[float] = None       # close - prev_close, instrument ccy
+    day_change_pct: Optional[float] = None   # e.g. 0.012 = +1.2%
+    day_change_base: Optional[float] = None  # day P&L on the position, base ccy
+    weight_pct: Optional[float] = None       # share of total_value, e.g. 23.2
 
 
 class PortfolioSummary(BaseModel):
@@ -92,6 +98,9 @@ class PortfolioSummary(BaseModel):
     holdings: list[HoldingOut]
     price_stale: list[str] = []   # symbols without a fresh price
     fx_stale: list[str] = []      # currencies without a convertible FX rate
+    quotes_as_of: Optional[datetime] = None  # when quotes were last fetched
+    quotes_source: Optional[str] = None      # provider name, e.g. yfinance
+    dividends_12m: Optional[float] = None    # dividends, trailing 12 months, base ccy
 
 
 class HistoryPoint(BaseModel):
@@ -106,3 +115,21 @@ class InstrumentCandidate(BaseModel):
     market: Literal["US", "HK"]
     currency: str     # "USD" | "HKD"
     source: str       # "yahoo" | "eastmoney"
+
+
+class CashFlowCreate(BaseModel):
+    date: date_cls
+    direction: Literal["in", "out"]  # in = deposit, out = withdrawal
+    amount: float = Field(..., gt=0)
+    currency: str = "HKD"
+    note: str = ""
+
+
+class CashFlowOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    date: date_cls
+    direction: str
+    amount: float
+    currency: str
+    note: str

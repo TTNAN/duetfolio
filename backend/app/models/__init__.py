@@ -1,3 +1,3 @@
-from app.models.models import Instrument, PriceSnapshot, Transaction
+from app.models.models import CashFlow, Instrument, PriceSnapshot, Transaction
 
-__all__ = ["Instrument", "Transaction", "PriceSnapshot"]
+__all__ = ["CashFlow", "Instrument", "Transaction", "PriceSnapshot"]

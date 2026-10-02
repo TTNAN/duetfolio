@@ -43,8 +43,12 @@ def _http_get_json(url: str, timeout: int = HTTP_TIMEOUT) -> dict | None:
 class BaseProvider:
     name = "base"
 
-    def fetch_close(self, symbol: str) -> tuple[date, float] | None:
-        """Latest close for a Yahoo-format ticker (e.g. "SGOV", "3152.HK")."""
+    def fetch_close(self, symbol: str) -> tuple[date, float, float | None] | None:
+        """Latest close for a Yahoo-format ticker (e.g. "SGOV", "3152.HK").
+
+        Returns (quote_date, close, prev_close); prev_close may be None
+        when the source doesn't provide it.
+        """
         raise NotImplementedError
 
     def fetch_usd_to_hkd(self) -> float | None:
@@ -59,7 +63,7 @@ class BaseProvider:
 class YFinanceProvider(BaseProvider):
     name = "yfinance"
 
-    def fetch_close(self, symbol: str) -> tuple[date, float] | None:
+    def fetch_close(self, symbol: str) -> tuple[date, float, float | None] | None:
         if yf is None:
             return None
         try:
@@ -67,7 +71,8 @@ class YFinanceProvider(BaseProvider):
             if hist is None or hist.empty:
                 return None
             last = hist.iloc[-1]
-            return hist.index[-1].date(), float(last["Close"])
+            prev = float(hist.iloc[-2]["Close"]) if len(hist) >= 2 else None
+            return hist.index[-1].date(), float(last["Close"]), prev
         except Exception:
             return None
 
@@ -158,7 +163,7 @@ class EastMoneyProvider(BaseProvider):
         self._secid_cache[symbol] = secid
         return secid
 
-    def fetch_close(self, symbol: str) -> tuple[date, float] | None:
+    def fetch_close(self, symbol: str) -> tuple[date, float, float | None] | None:
         secid = self._secid(symbol)
         if not secid:
             return None
@@ -173,8 +178,10 @@ class EastMoneyProvider(BaseProvider):
             price = float(price)
             if price <= 0:
                 return None
+            prev = q.get("f60")
+            prev = float(prev) if prev not in (None, "-") and float(prev) > 0 else None
             # push2 stock/get carries no quote date; use today (documented limitation)
-            return date.today(), price
+            return date.today(), price, prev
         except Exception:
             return None
 
@@ -198,7 +205,7 @@ def get_provider() -> BaseProvider:
 
 
 # ---- module-level facade (stable API for the rest of the app) ----
-def fetch_close(symbol: str) -> tuple[date, float] | None:
+def fetch_close(symbol: str) -> tuple[date, float, float | None] | None:
     return get_provider().fetch_close(symbol)
 
 
@@ -252,13 +259,15 @@ def refresh_all(db: Session) -> dict:
         for inst, res in ex.map(_fetch, instruments):
             fetched[inst.id] = (inst, res)
 
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
     updated, failed = [], []
     for inst in instruments:
         _inst, res = fetched[inst.id]
         if res is None:
             failed.append(inst.symbol)
             continue
-        d, close = res
+        d, close, prev_close = res[0], res[1], res[2] if len(res) > 2 else None
         snap = (
             db.query(PriceSnapshot)
             .filter_by(instrument_id=inst.id, date=d)
@@ -266,9 +275,13 @@ def refresh_all(db: Session) -> dict:
         )
         if snap:
             snap.close = close
+            snap.prev_close = prev_close
+            snap.source = provider.name
+            snap.fetched_at = now
         else:
             db.add(PriceSnapshot(instrument_id=inst.id, date=d, close=close,
-                                 source=provider.name))
+                                 prev_close=prev_close, source=provider.name,
+                                 fetched_at=now))
         updated.append(inst.symbol)
     db.commit()
     return {"provider": provider.name, "updated": updated, "failed": failed}

@@ -144,3 +144,36 @@ tr.fxrow td { border-top: none; padding-top: 0; }
 }
 .step-t { font-weight: 600; font-size: 15px; }
 .step-d { font-size: 12px; }
+
+/* dashboard additions */
+.toolbar-right { display: flex; align-items: center; gap: 12px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.card-head h3 { margin: 0; }
+.seg.small .seg-btn { padding: 4px 10px; font-size: 12px; }
+.tbl.clickable tbody tr { cursor: pointer; }
+.tbl.clickable tbody tr:hover td { background: rgba(79, 140, 255, 0.07); }
+
+/* chart hover */
+.chart-wrap { position: relative; }
+.chart-tip {
+  position: absolute; top: 0; transform: translate(-50%, -110%);
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px; font-size: 12px; white-space: nowrap; pointer-events: none;
+  z-index: 5;
+}
+
+/* holding side panel */
+.sidepanel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40; }
+.sidepanel {
+  position: fixed; top: 0; right: 0; width: 400px; max-width: 92vw; height: 100vh;
+  background: var(--panel); border-left: 1px solid var(--border); z-index: 50;
+  padding: 24px; overflow-y: auto; box-shadow: -8px 0 24px rgba(0,0,0,.45);
+}
+.panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.panel-title { font-size: 18px; font-weight: 700; }
+.sidepanel .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* import preview */
+.ok-text { color: var(--green); font-size: 13px; margin-top: 8px; }
+tr.error-row td { color: var(--red); }
+label.btn { display: inline-block; cursor: pointer; }

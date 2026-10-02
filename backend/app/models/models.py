@@ -58,6 +58,25 @@ class PriceSnapshot(Base):
     instrument_id = Column(Integer, ForeignKey("instruments.id"), nullable=False, index=True)
     date = Column(Date, nullable=False)
     close = Column(Float, nullable=False)  # in instrument currency
+    prev_close = Column(Float, nullable=True)  # previous session close, for day change
     source = Column(String(32), default="yfinance", nullable=False)
+    fetched_at = Column(DateTime, nullable=True)  # when this quote was pulled
 
     instrument = relationship("Instrument", back_populates="prices")
+
+
+class CashFlow(Base):
+    """Cash in/out of the brokerage account (not tied to an instrument).
+
+    direction "in"  = deposit into the account  -> XIRR outflow (negative)
+    direction "out" = withdrawal from account   -> XIRR inflow (positive)
+    amount is always positive; the sign is derived from direction.
+    """
+    __tablename__ = "cash_flows"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+    direction = Column(String(8), nullable=False)  # "in" | "out"
+    amount = Column(Float, nullable=False)  # positive, in `currency`
+    currency = Column(String(8), nullable=False, default="HKD")
+    note = Column(String(256), default="", nullable=False)
