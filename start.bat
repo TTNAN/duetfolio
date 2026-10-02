@@ -19,7 +19,7 @@ if not exist .venv (
 )
 call .venv\Scripts\activate.bat
 echo [2/4] Installing backend dependencies (slow on first run)...
-pip install -q -r requirements.txt
+python -m pip install -q -r requirements.txt
 
 cd /d "%~dp0frontend"
 where node >nul 2>nul
