@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 REM duetfolio 一键启动（Windows）：后端 + 前端，浏览器打开仪表盘
 REM 双击运行即可
 
