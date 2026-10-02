@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.db
+*.sqlite3
+.env
+
+# Alembic (keep migrations, ignore pycache)
+backend/alembic/versions/__pycache__/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
