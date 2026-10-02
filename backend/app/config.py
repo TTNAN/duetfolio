@@ -13,5 +13,10 @@ BASE_CURRENCY = os.getenv("BASE_CURRENCY", "HKD").upper()
 # yfinance network timeout (seconds)
 YFINANCE_TIMEOUT = int(os.getenv("YFINANCE_TIMEOUT", "15"))
 
+# Market data provider: "yfinance" (default) or "eastmoney" (unofficial push2 API).
+# yfinance: zero-setup, ~15min delayed. eastmoney: closer to real-time for
+# CN investors, but unofficial and may break without notice.
+MARKET_PROVIDER = os.getenv("MARKET_PROVIDER", "yfinance").lower()
+
 # CORS: comma-separated origins, "*" for dev
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")

@@ -22,7 +22,7 @@ Most portfolio trackers are US/EU-centric. If your holdings span US and Hong Kon
 |---|---|
 | Backend | FastAPI, SQLAlchemy 2.0 (async-ready), Alembic, Pydantic v2 |
 | Database | SQLite (dev) / PostgreSQL (prod, via `DATABASE_URL`) |
-| Market data | yfinance (Yahoo Finance) |
+| Market data | yfinance (default) / East Money push2 (optional, via `MARKET_PROVIDER`) |
 | Frontend | React 18 + Vite, hand-rolled SVG charts (zero chart deps) |
 | Deploy | Docker Compose |
 
@@ -69,6 +69,7 @@ docker compose up --build
 - **Average-cost basis** — simple, auditable; FIFO is a future option.
 - **Prices are a cache** — `price_snapshots` is a resilience layer, not canonical state.
 - **Yahoo HK tickers drop the leading zero** — e.g. 03152 (Bosera HKD Money Market ETF) is `3152.HK` on Yahoo, not `03152.HK`. Some small HK money-market ETFs aren't covered by Yahoo at all.
+- **Pluggable market data** — yfinance by default (zero setup, ~15min delayed); set `MARKET_PROVIDER=eastmoney` for East Money's push2 API (no key, closer to real-time, but **unofficial** and may break without notice — failures are reported as failed, never crash). Yahoo tickers auto-map to East Money secids (`SGOV`→`106.SGOV`, `3152.HK`→`116.03152`, leading zeros restored).
 - **XIRR annualizes aggressively** — a 4-day holding period produces extreme annualized numbers; that's the math, not a bug. XIRR is only reported when every holding has a fresh price.
 
 ## Disclaimer

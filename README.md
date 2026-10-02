@@ -22,7 +22,7 @@
 |---|---|
 | 后端 | FastAPI、SQLAlchemy 2.0、Alembic、Pydantic v2 |
 | 数据库 | SQLite（开发零配置）/ PostgreSQL（生产，`DATABASE_URL` 一键切换） |
-| 行情 | yfinance（Yahoo Finance） |
+| 行情 | yfinance（默认）/ 东方财富 push2（可选，`MARKET_PROVIDER` 切换） |
 | 前端 | React 18 + Vite，手写 SVG 图表（零图表依赖） |
 | 部署 | Docker Compose |
 
@@ -69,6 +69,7 @@ docker compose up --build
 - **平均成本法** — 简单可审计；FIFO 以后再说。
 - **行情是缓存** — `price_snapshots` 是韧性层，不是权威状态。
 - **Yahoo 的港股代码去前导零** — 比如 03152（博时港元货币 ETF）在 Yahoo 是 `3152.HK` 而不是 `03152.HK`；部分小港股货币 ETF Yahoo 根本没收录。
+- **行情源可插拔** — 默认 yfinance（零配置，延迟约 15 分钟）；设 `MARKET_PROVIDER=eastmoney` 可切东方财富 push2（免 key、更接近实时，但**非官方接口**，随时可能变，挂了会自动报 failed）。Yahoo ticker 会自动映射成东财 secid（`SGOV`→`106.SGOV`，`3152.HK`→`116.03152`，前导零会自动补回）。
 - **XIRR 年化很激进** — 持有 4 天算出来的年化会非常极端，这是数学不是 bug；只有全部持仓都有新鲜行情时才报告 XIRR。
 
 ## 免责
