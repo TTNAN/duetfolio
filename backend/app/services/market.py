@@ -76,8 +76,8 @@ class EastMoneyProvider(BaseProvider):
 
     Symbol mapping: Yahoo ticker -> East Money secid ("MktNum.Code",
     e.g. "106.SGOV", "116.03152") resolved via the public suggest API.
-    Quote fields (community-documented, unverified upstream):
-    f43 latest, f44 high, f45 low, f46 open, f60 prev close.
+    Quote fields f43 latest, f44 high, f45 low, f46 open, f60 prev close
+    (verified against live push2 responses 2026-10-02).
     """
     name = "eastmoney"
 
