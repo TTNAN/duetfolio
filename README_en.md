@@ -22,16 +22,16 @@ You only need Python ([download here](https://www.python.org/downloads/), tick *
 
 1. Click the green **Code** button on this repo → **Download ZIP**, extract it
 2. Double-click **`start-all.bat`** in the extracted folder and wait for both windows (backend + frontend)
-3. Open http://127.0.0.1:5173 in your browser — that's your portfolio dashboard: total value, P&L, XIRR, allocation donut
+3. Open [http://127.0.0.1:5173](http://127.0.0.1:5173) in your browser — that's your portfolio dashboard: total value, P&L, XIRR, allocation donut
 
-> Backend API docs only: double-click `start.bat`, then open http://127.0.0.1:8000/docs
+> Backend API docs only: double-click `start.bat`, then open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 > Manual frontend start: `cd frontend && npm install && npm run dev` (needs Node.js 18+)
 
 If the page loads, you're up. Now let's record your first holding.
 
 ## First use: record a holding
 
-Open the API docs page at http://127.0.0.1:8000/docs — everything below is point and click:
+Open the API docs page at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) — everything below is point and click:
 
 **Step 1: add an instrument** — find `POST /api/instruments`, expand it → **Try it out** → replace the request body with:
 
