@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { useLang } from '../i18n.js';
 
 export default function Instruments({ onChange }) {
+  const { t } = useLang();
   const [list, setList] = useState([]);
   const [err, setErr] = useState('');
   const [form, setForm] = useState({ symbol: '', name: '', market: 'US', currency: 'USD', asset_type: 'etf' });
@@ -31,7 +33,7 @@ export default function Instruments({ onChange }) {
   };
 
   const remove = async (id, symbol) => {
-    if (!confirm(`Delete ${symbol} and ALL its transactions?`)) return;
+    if (!confirm(t.confirmDelInst(symbol))) return;
     await api.deleteInstrument(id);
     await load();
     onChange && onChange();
@@ -40,53 +42,53 @@ export default function Instruments({ onChange }) {
   return (
     <div className="grid2">
       <div className="card">
-        <h3>Add instrument</h3>
+        <h3>{t.addInst}</h3>
         <form onSubmit={submit} className="form">
-          <label>Symbol (Yahoo ticker)
-            <input required value={form.symbol} onChange={set('symbol')} placeholder="SGOV or 03152.HK" />
+          <label>{t.fSymbol}
+            <input required value={form.symbol} onChange={set('symbol')} placeholder={t.symPh} />
           </label>
-          <label>Name<input value={form.name} onChange={set('name')} placeholder="iShares 0-3 Month Treasury Bond ETF" /></label>
+          <label>{t.fName}<input value={form.name} onChange={set('name')} placeholder={t.namePh} /></label>
           <div className="row2">
-            <label>Market
+            <label>{t.fMarket}
               <select value={form.market} onChange={set('market')}>
                 <option value="US">US</option>
                 <option value="HK">HK</option>
               </select>
             </label>
-            <label>Currency
+            <label>{t.fCcy}
               <select value={form.currency} onChange={set('currency')}>
                 <option value="USD">USD</option>
                 <option value="HKD">HKD</option>
               </select>
             </label>
           </div>
-          <label>Type
+          <label>{t.fAsset}
             <select value={form.asset_type} onChange={set('asset_type')}>
-              <option value="etf">ETF</option>
-              <option value="stock">Stock</option>
-              <option value="fund">Fund</option>
+              <option value="etf">{t.assetTypes.etf}</option>
+              <option value="stock">{t.assetTypes.stock}</option>
+              <option value="fund">{t.assetTypes.fund}</option>
             </select>
           </label>
-          <button className="btn primary" type="submit">Add</button>
+          <button className="btn primary" type="submit">{t.add}</button>
         </form>
         {err && <div className="error-text">{err}</div>}
         <div className="muted small" style={{ marginTop: 12 }}>
-          Tip: Yahoo drops the leading zero on 5-digit HK codes — e.g. enter <code>3152.HK</code> for 03152 (Bosera HKD Money Market ETF). US tickers as-is (e.g. <code>SGOV</code>).
+          {t.instTip}
         </div>
       </div>
       <div className="card">
-        <h3>Instruments</h3>
+        <h3>{t.instList}</h3>
         <table className="tbl">
-          <thead><tr><th>Symbol</th><th>Name</th><th>Mkt</th><th>Ccy</th><th></th></tr></thead>
+          <thead><tr><th>{t.ith.symbol}</th><th>{t.ith.name}</th><th>{t.ith.mkt}</th><th>{t.ith.ccy}</th><th></th></tr></thead>
           <tbody>
             {list.map((i) => (
               <tr key={i.id}>
                 <td><b>{i.symbol}</b></td><td>{i.name || <span className="muted">—</span>}</td>
                 <td>{i.market}</td><td>{i.currency}</td>
-                <td><button className="link danger" onClick={() => remove(i.id, i.symbol)}>delete</button></td>
+                <td><button className="link danger" onClick={() => remove(i.id, i.symbol)}>{t.del}</button></td>
               </tr>
             ))}
-            {list.length === 0 && <tr><td colSpan="5" className="muted">Nothing here yet.</td></tr>}
+            {list.length === 0 && <tr><td colSpan="5" className="muted">{t.noInst}</td></tr>}
           </tbody>
         </table>
       </div>

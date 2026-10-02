@@ -2,17 +2,19 @@ import { useState } from 'react';
 import Dashboard from './pages/Dashboard.jsx';
 import Transactions from './pages/Transactions.jsx';
 import Instruments from './pages/Instruments.jsx';
-
-const TABS = [
-  { id: 'dashboard', label: '📊 Dashboard' },
-  { id: 'transactions', label: '🧾 Transactions' },
-  { id: 'instruments', label: '🏷 Instruments' },
-];
+import { useLang } from './i18n.js';
 
 export default function App() {
   const [tab, setTab] = useState('dashboard');
   const [reloadKey, setReloadKey] = useState(0);
+  const { lang, setLang, t } = useLang();
   const reload = () => setReloadKey((k) => k + 1);
+
+  const TABS = [
+    { id: 'dashboard', label: t.tabs.dashboard },
+    { id: 'transactions', label: t.tabs.transactions },
+    { id: 'instruments', label: t.tabs.instruments },
+  ];
 
   return (
     <div className="app">
@@ -21,19 +23,26 @@ export default function App() {
           <span className="brand-mark">◈</span>
           <div>
             <div className="brand-name">duetfolio</div>
-            <div className="brand-sub">US + HK portfolio tracker</div>
+            <div className="brand-sub">{t.brandSub}</div>
           </div>
         </div>
         <nav className="tabs">
-          {TABS.map((t) => (
+          {TABS.map((tb) => (
             <button
-              key={t.id}
-              className={tab === t.id ? 'tab active' : 'tab'}
-              onClick={() => setTab(t.id)}
+              key={tb.id}
+              className={tab === tb.id ? 'tab active' : 'tab'}
+              onClick={() => setTab(tb.id)}
             >
-              {t.label}
+              {tb.label}
             </button>
           ))}
+          <button
+            className="tab lang-btn"
+            onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
+            title="switch language"
+          >
+            {t.langBtn}
+          </button>
         </nav>
       </header>
       <main className="main">
@@ -42,7 +51,7 @@ export default function App() {
         {tab === 'instruments' && <Instruments onChange={reload} />}
       </main>
       <footer className="footer">
-        duetfolio · FastAPI + React · prices via Yahoo Finance (15-min delay)
+        {t.footer}
       </footer>
     </div>
   );

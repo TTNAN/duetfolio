@@ -34,6 +34,7 @@ body {
 }
 .tab:hover { color: var(--text); background: var(--panel2); }
 .tab.active { color: var(--text); background: var(--panel2); border-color: var(--border); }
+.tab.lang-btn { border-color: var(--border); font-weight: 600; }
 .main { flex: 1; padding: 24px 28px; max-width: 1200px; width: 100%; margin: 0 auto; }
 .footer { text-align: center; padding: 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
 
