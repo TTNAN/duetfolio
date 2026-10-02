@@ -80,7 +80,7 @@ db         SQLite（默认零配置）/ PostgreSQL（DATABASE_URL 一键切换�
 
 ### 行情源设计
 
-`backend/app/services/market.py` 内 `BaseProvider` 抽象，`MARKET_PROVIDER` 环境变量切换（默认 `eastmoney`，可选 `yfinance`）。
+`backend/app/services/market.py` 内 `BaseProvider` 抽象，`MARKET_PROVIDER` 环境变量切换（默认 `yfinance`，可选 `eastmoney`）。
 
 - **主备链路**：`refresh_all` 对每只标的先走主行情源，返回为空再走备选源；快照的 `source`/`fetched_at` 记录**实际**来源与抓取时间，前端"行情截至"据此展示。
 - **eastmoney**：非官方 push2 接口（`f43` 最新价 / `f60` 昨收），符号经 suggest API 映射（`3152.HK` → `116.03152`，前导零自动补回），yfinance 做汇率（东财无可靠外汇接口）。
@@ -119,7 +119,7 @@ npm install && npm run dev
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `MARKET_PROVIDER` | `eastmoney` | 主行情源；`yfinance` 可切换，另一方自动成为备选 |
+| `MARKET_PROVIDER` | `yfinance` | 主行情源；`eastmoney` 可切换，另一方自动成为备选 |
 | `BASE_CURRENCY` | `HKD` | 本币 |
 | `DATABASE_URL` | 本地 SQLite | `postgresql+psycopg2://…` 切 Postgres |
 | `CORS_ORIGINS` | `*` | 前端跨域 |

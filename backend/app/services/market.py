@@ -1,7 +1,7 @@
 """Market data providers.
 
 Architecture: every provider implements BaseProvider. The active provider is
-chosen by the MARKET_PROVIDER env var ("eastmoney" default, "yfinance"
+chosen by the MARKET_PROVIDER env var ("yfinance" default, "eastmoney"
 optional). Callers (refresh_all, portfolio engine) never touch a provider
 directly — they use the module-level fetch_close / fetch_usd_to_hkd /
 fetch_fx_to_hkd, which delegate to the active provider.

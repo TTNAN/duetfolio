@@ -80,7 +80,7 @@ db         SQLite (zero-config default) / PostgreSQL (via DATABASE_URL)
 
 ### Market-data design
 
-`BaseProvider` abstraction in `backend/app/services/market.py`, switched by `MARKET_PROVIDER` (default `eastmoney`, `yfinance` optional).
+`BaseProvider` abstraction in `backend/app/services/market.py`, switched by `MARKET_PROVIDER` (default `yfinance`, `eastmoney` optional).
 
 - **Primary/backup chain**: `refresh_all` tries the primary provider per symbol, then the backup before marking failed. Snapshots record the **actual** `source`/`fetched_at`, which the dashboard's "quotes as of" label reads.
 - **eastmoney**: unofficial push2 API (`f43` latest / `f60` prev close); symbols mapped via the suggest API (`3152.HK` → `116.03152`, leading zeros restored); FX via yfinance (East Money has no reliable forex endpoint).
@@ -119,7 +119,7 @@ npm install && npm run dev
 
 | Variable | Default | Notes |
 |---|---|---|
-| `MARKET_PROVIDER` | `eastmoney` | primary quote source; `yfinance` switches, the other becomes automatic backup |
+| `MARKET_PROVIDER` | `yfinance` | primary quote source; `eastmoney` switches, the other becomes automatic backup |
 | `BASE_CURRENCY` | `HKD` | base currency |
 | `DATABASE_URL` | local SQLite | `postgresql+psycopg2://…` for Postgres |
 | `CORS_ORIGINS` | `*` | frontend CORS |

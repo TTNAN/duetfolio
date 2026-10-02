@@ -22,12 +22,12 @@ YFINANCE_TIMEOUT = int(os.getenv("YFINANCE_TIMEOUT", "15"))
 BASIC_AUTH_USER = os.getenv("BASIC_AUTH_USER", "")
 BASIC_AUTH_PASS = os.getenv("BASIC_AUTH_PASS", "")
 
-# Market data provider: "eastmoney" (default, unofficial push2 API) or
-# "yfinance". Whichever is primary, the other serves as automatic per-symbol
-# fallback when the primary returns nothing.
-# eastmoney: closer to real-time for CN investors, but unofficial and may
-# break without notice. yfinance: zero-setup, ~15min delayed.
-MARKET_PROVIDER = os.getenv("MARKET_PROVIDER", "eastmoney").lower()
+# Market data provider: "yfinance" (default, ~15min delayed) or "eastmoney"
+# (unofficial push2 API). Whichever is primary, the other serves as automatic
+# per-symbol fallback when the primary returns nothing.
+# yfinance: zero-setup and reliable. eastmoney: closer to real-time for CN
+# investors, but unofficial, may break without notice, and lacks some fields.
+MARKET_PROVIDER = os.getenv("MARKET_PROVIDER", "yfinance").lower()
 
 # CORS: comma-separated origins, "*" for dev
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
