@@ -1,6 +1,10 @@
 """Central configuration. Everything is overridable via environment variables."""
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()  # allow a local .env file to set the variables below
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # SQLite by default for zero-setup dev; point at Postgres in production, e.g.

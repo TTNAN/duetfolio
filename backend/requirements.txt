@@ -5,3 +5,5 @@ alembic>=1.13
 yfinance>=0.2.40
 pydantic>=2.0
 python-multipart>=0.0.9
+python-dotenv>=1.0
+psycopg2-binary>=2.9  # only needed when DATABASE_URL points at PostgreSQL

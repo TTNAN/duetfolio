@@ -83,7 +83,7 @@ export default function Dashboard({ reloadKey }) {
       <div className="stats">
         <StatCard label={`Total value (${data.base_currency})`} value={fmt(data.total_value)} sub={data.fx_usd_to_base ? `USD/${data.base_currency} ${data.fx_usd_to_base.toFixed(4)}` : ''} />
         <StatCard label="Invested" value={fmt(data.total_invested)} />
-        <StatCard label="Unrealized P&L" value={data.total_pnl == null ? '—' : (data.total_pnl >= 0 ? '+' : '') + fmt(data.total_pnl)} tone={pnlTone} />
+        <StatCard label="Total P&L" value={data.total_pnl == null ? '—' : (data.total_pnl >= 0 ? '+' : '') + fmt(data.total_pnl)} tone={pnlTone} sub={data.realized_pnl != null && data.unrealized_pnl != null ? `realized ${fmt(data.realized_pnl)} · unrealized ${fmt(data.unrealized_pnl)}` : ''} />
         <StatCard label="XIRR (annualized)" value={data.xirr === null ? '—' : (data.xirr * 100).toFixed(2) + '%'} sub="incl. dividends & terminal value" tone={pnlTone} />
       </div>
 

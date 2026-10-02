@@ -48,7 +48,7 @@ For HK stocks, append `.HK` (note: Yahoo drops leading zeros, so `03152` becomes
 {"instrument_id": 1, "type": "buy", "date": "2026-09-28", "quantity": 2, "price": 100.66, "fee": 1.99}
 ```
 
-(`instrument_id` is the `id` from step 1's response; use `"type": "dividend"` for dividend payouts.)
+(`instrument_id` is the `id` from step 1's response; for dividends use `"type": "dividend"` — then `quantity × price` = dividend amount received and `fee` = withholding tax/fees, deducted from the dividend.)
 
 **Step 4: see the total** — open http://127.0.0.1:8000/api/portfolio/summary?base=HKD for total value, P&L and XIRR in HKD.
 
@@ -58,6 +58,9 @@ For HK stocks, append `.HK` (note: Yahoo drops leading zeros, so `03152` becomes
 
 **How do I write HK tickers?**
 Yahoo Finance drops the leading zero: `03152` → `3152.HK`, `00700` → `700.HK`. US tickers as-is: `AAPL`, `SGOV`.
+
+**How is total P&L computed?**
+Total P&L = unrealized (current price − remaining cost) + realized (sells & dividends, net of fees). "Invested" is the cost of your **remaining** position, not cumulative cash in.
 
 **Why is my XIRR absurdly large?**
 XIRR is annualized — a 0.1% gain over 4 days annualizes to an extreme number. That's the math, not a bug. The longer you hold, the more realistic it gets. Each cashflow converts at the FX rate of its **transaction date** (captured automatically), so currency moves don't leak into your investment return.

@@ -56,7 +56,8 @@ class HoldingOut(BaseModel):
     currency: str
     quantity: float
     avg_cost: float
-    invested: float          # in instrument currency
+    invested: float          # in instrument currency (remaining cost basis)
+    realized_pnl: float = 0.0  # in instrument currency, sells & dividends net of fees
     latest_price: Optional[float] = None
     price_date: Optional[date] = None
     market_value: Optional[float] = None   # in instrument currency
@@ -70,8 +71,10 @@ class PortfolioSummary(BaseModel):
     base_currency: str
     fx_usd_to_base: Optional[float] = None
     total_value: Optional[float] = None
-    total_invested: Optional[float] = None
-    total_pnl: Optional[float] = None
+    total_invested: Optional[float] = None  # remaining cost basis (not cumulative)
+    total_pnl: Optional[float] = None       # cumulative: unrealized + realized
+    unrealized_pnl: Optional[float] = None  # market value - remaining cost
+    realized_pnl: Optional[float] = None    # sells & dividends, net of fees
     xirr: Optional[float] = None  # annualized, e.g. 0.083 = 8.3%
     holdings: list[HoldingOut]
     price_stale: list[str] = []   # symbols without a fresh price
