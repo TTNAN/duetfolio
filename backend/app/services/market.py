@@ -204,8 +204,16 @@ class EastMoneyProvider(BaseProvider):
             price = float(price)
             if price <= 0:
                 return None
+            # East Money push2 returns US-stock quotes scaled x1000 (verified
+            # live 2026-10-10: TSLA f43=382700 for a ~$382.70 quote). HK
+            # quotes arrive in HKD directly and are left alone.
+            is_us = not symbol.upper().endswith(".HK")
+            if is_us:
+                price = price / 1000
             prev = q.get("f60")
             prev = float(prev) if prev not in (None, "-") and float(prev) > 0 else None
+            if is_us and prev is not None:
+                prev = prev / 1000
             # push2 stock/get carries no quote date; use today (documented limitation)
             return date.today(), price, prev
         except Exception:
