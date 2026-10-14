@@ -23,13 +23,16 @@ try {
   & .\.venv\Scripts\python.exe -m pip install -q -r requirements.txt
 
   Set-Location "$root\frontend"
-  if (!(Test-Path node_modules\.bin\vite.cmd)) {
+  # lucide-react arrived in v0.2: re-install when upgrading an older checkout
+  if (!(Test-Path node_modules\.bin\vite.cmd) -or !(Test-Path node_modules\lucide-react)) {
     Write-Host "[3/4] Installing frontend dependencies (slow on first run)..."
     npm install
   }
-  if (!(Test-Path dist\index.html)) {
-    Write-Host "[4/4] Building frontend (one-time)..."
+  # rebuild when the bundled UI is from an older version (marker per release)
+  if (!(Test-Path dist\.build-0.2.0)) {
+    Write-Host "[4/4] Building frontend (one-time per version)..."
     npm run build
+    if (Test-Path dist\index.html) { New-Item -ItemType File -Force dist\.build-0.2.0 | Out-Null }
   }
 
   Set-Location "$root\backend"

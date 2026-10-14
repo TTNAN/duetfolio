@@ -32,7 +32,10 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if not exist "node_modules\.bin\vite.cmd" (
+set NEED_NPM=0
+if not exist "node_modules\.bin\vite.cmd" set NEED_NPM=1
+if not exist "node_modules\lucide-react" set NEED_NPM=1
+if "%NEED_NPM%"=="1" (
   echo [3/4] Installing frontend dependencies (slow on first run)...
   call npm install
   if not exist "node_modules\.bin\vite.cmd" (
@@ -42,9 +45,10 @@ if not exist "node_modules\.bin\vite.cmd" (
     exit /b 1
   )
 )
-if not exist "dist\index.html" (
-  echo [4/4] Building frontend (one-time, ~30 seconds)...
+if not exist "dist\.build-0.2.0" (
+  echo [4/4] Building frontend (one-time per version, ~30 seconds)...
   call npm run build
+  if exist "dist\index.html" type nul > "dist\.build-0.2.0"
 )
 
 echo.
