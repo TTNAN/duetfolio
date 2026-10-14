@@ -24,22 +24,38 @@ def run_migrations() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     run_migrations()
+    if config.DEMO_MODE:
+        from app.demo import bootstrap
+        bootstrap()
     yield
 
 
-app = FastAPI(title="duetfolio", version="0.2.0",
+app = FastAPI(title="duetfolio", version="0.3.0",
               description="Dual-market (US+HK) portfolio tracker API",
               lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    # browsers forbid allow_credentials with a wildcard origin; only send
-    # credentials when specific origins are configured
-    allow_credentials=config.CORS_ORIGINS != ["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if config.CORS_ORIGINS:  # empty = same-origin only (Docker/nginx default)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.CORS_ORIGINS,
+        # browsers forbid allow_credentials with a wildcard origin; only send
+        # credentials when specific origins are configured
+        allow_credentials=config.CORS_ORIGINS != ["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 app.include_router(router, prefix="/api")
+
+
+@app.middleware("http")
+async def demo_read_only(request: Request, call_next):
+    """DEMO_MODE: the public demo is read-only."""
+    if (config.DEMO_MODE and request.method not in ("GET", "HEAD", "OPTIONS")
+            and request.url.path.startswith("/api/")):
+        from app.demo import DEMO_ALLOWED_WRITES
+        if request.url.path not in DEMO_ALLOWED_WRITES:
+            return JSONResponse({"detail": "Demo mode is read-only — run duetfolio locally to record your own trades."},
+                                status_code=403)
+    return await call_next(request)
 
 
 @app.middleware("http")

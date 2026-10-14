@@ -27,8 +27,9 @@ router = APIRouter()
 
 @router.get("/health")
 def health():
-    return {"ok": True, "version": "0.2.0", "base_currency": config.BASE_CURRENCY,
-            "market_provider": config.MARKET_PROVIDER}
+    return {"ok": True, "version": "0.3.0", "base_currency": config.BASE_CURRENCY,
+            "market_provider": config.MARKET_PROVIDER, "demo": config.DEMO_MODE,
+            "cost_method": config.COST_METHOD}
 
 
 # ---- instruments ----
@@ -116,6 +117,41 @@ def list_transactions(
     ]
 
 
+def _first_oversell(db: Session, instrument_id: int) -> float | None:
+    """Replay one instrument; return the negative quantity a sell would
+    leave (accounting for splits), or None when the ledger is consistent."""
+    qty = 0.0
+    for t in (db.query(Transaction).filter_by(instrument_id=instrument_id)
+              .order_by(Transaction.date, Transaction.id).all()):
+        if t.type == "buy":
+            qty += t.quantity
+        elif t.type == "sell":
+            qty -= t.quantity
+            if qty < -1e-6:
+                return qty
+        elif t.type == "split":
+            qty *= t.quantity
+    return None
+
+
+def _after_split_change(db: Session, inst: Instrument) -> None:
+    """Daily history must be split-adjusted for the valuation to be right.
+    Snapshots stored before we knew about the split may be unadjusted, so
+    drop that instrument's daily closes and re-fetch adjusted history
+    (best effort — the latest live quote is kept)."""
+    latest = (db.query(PriceSnapshot).filter_by(instrument_id=inst.id)
+              .order_by(PriceSnapshot.date.desc()).first())
+    q = db.query(PriceSnapshot).filter(PriceSnapshot.instrument_id == inst.id)
+    if latest is not None:
+        q = q.filter(PriceSnapshot.id != latest.id)
+    q.delete(synchronize_session=False)
+    db.flush()
+    try:
+        market.backfill_history(db, only=[inst.id], commit=False)
+    except Exception:
+        pass  # offline: the user can run "backfill history" later
+
+
 @router.post("/transactions", response_model=TransactionOut, status_code=201)
 def create_transaction(body: TransactionCreate, db: Session = Depends(get_db)):
     inst = db.get(Instrument, body.instrument_id)
@@ -131,8 +167,14 @@ def create_transaction(body: TransactionCreate, db: Session = Depends(get_db)):
     # capture the FX rate of the transaction date so historical cashflows
     # (XIRR) aren't polluted by later FX moves; None = fall back to current
     fx_to_hkd = market.fetch_fx_to_hkd(inst.currency, body.date)
-    t = Transaction(**body.model_dump(), fx_to_hkd=fx_to_hkd)
+    data = body.model_dump()
+    if body.type == "split":  # a ratio, not a trade: no price, fee or cash
+        data.update(price=0.0, fee=0.0)
+    t = Transaction(**data, fx_to_hkd=fx_to_hkd)
     db.add(t)
+    if body.type == "split":
+        db.flush()
+        _after_split_change(db, inst)
     db.commit()
     db.refresh(t)
     return TransactionOut(
@@ -149,6 +191,7 @@ def update_transaction(transaction_id: int, body: TransactionUpdate,
     if not t:
         raise HTTPException(404, "Transaction not found")
     inst = db.get(Instrument, t.instrument_id)
+    was_split = t.type == "split"
     for field in ("type", "quantity", "price", "fee", "date", "note"):
         v = getattr(body, field)
         if v is not None:
@@ -159,23 +202,14 @@ def update_transaction(transaction_id: int, body: TransactionUpdate,
     if body.refetch_fx:
         t.fx_to_hkd = market.fetch_fx_to_hkd(inst.currency, t.date)
     db.flush()
-    # oversell guard: the edit must not leave any instrument with negative
-    # net quantity (compute_holdings clamps negatives to 0, so count raw)
-    from collections import defaultdict
-    qty_by_inst: dict[int, float] = defaultdict(float)
-    for iid, typ, q in db.query(
-            Transaction.instrument_id, Transaction.type, Transaction.quantity).all():
-        if typ == "buy":
-            qty_by_inst[iid] += q
-        elif typ == "sell":
-            qty_by_inst[iid] -= q
-    bad_id = next((i for i, q in qty_by_inst.items() if q < -1e-9), None)
-    if bad_id is not None:
+    # oversell guard: the edit must not make any sell exceed the shares held
+    # at that point in time (replayed, so splits are accounted for)
+    bad = _first_oversell(db, t.instrument_id)
+    if bad is not None:
         db.rollback()
-        bad_inst = db.get(Instrument, bad_id)
-        raise HTTPException(
-            400, f"Oversell: edit would leave "
-                 f"{bad_inst.symbol} at {qty_by_inst[bad_id]:g}")
+        raise HTTPException(400, f"Oversell: edit would leave {inst.symbol} at {bad:g}")
+    if was_split or t.type == "split":
+        _after_split_change(db, inst)
     db.commit()
     db.refresh(t)
     return TransactionOut(
@@ -190,7 +224,16 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
     t = db.get(Transaction, transaction_id)
     if not t:
         raise HTTPException(404, "Transaction not found")
+    inst = db.get(Instrument, t.instrument_id)
+    was_split = t.type == "split"
     db.delete(t)
+    db.flush()
+    bad = _first_oversell(db, inst.id)
+    if bad is not None:
+        db.rollback()
+        raise HTTPException(400, f"Oversell: deleting it would leave {inst.symbol} at {bad:g}")
+    if was_split:
+        _after_split_change(db, inst)
     db.commit()
 
 
@@ -217,8 +260,10 @@ def export_transactions_csv(db: Session = Depends(get_db)):
 
 # ---- broker CSV import ----
 @router.post("/transactions/import/preview")
-async def import_preview(file: UploadFile = File(...)):
-    """Parse a broker CSV (Futu / IBKR / generic) -> row-by-row preview.
+async def import_preview(file: UploadFile = File(...),
+                         broker: str = Query(default="auto",
+                                             pattern="^(auto|futu|tiger|ibkr|schwab|generic)$")):
+    """Parse a broker CSV (Futu / Tiger / IBKR / Schwab / generic) -> preview.
 
     Nothing is written. The frontend shows the preview and posts back
     {"rows": [...]} to /transactions/import for the confirmed rows.
@@ -226,7 +271,7 @@ async def import_preview(file: UploadFile = File(...)):
     raw = await file.read()
     if len(raw) > 5 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 5MB)")
-    return parse_csv(raw)
+    return parse_csv(raw, broker=broker)
 
 
 @router.post("/transactions/import")
@@ -277,32 +322,36 @@ def import_confirm(payload: dict, db: Session = Depends(get_db)):
 @router.get("/portfolio/summary", response_model=PortfolioSummary)
 def get_summary(
     base: str = Query(default=config.BASE_CURRENCY, pattern="^(HKD|USD|CNY)$"),
+    method: str = Query(default=config.COST_METHOD, pattern="^(wac|fifo)$"),
     db: Session = Depends(get_db),
 ):
-    return portfolio_summary(db, base=base)
+    return portfolio_summary(db, base=base, method=method)
 
 
 @router.get("/portfolio/history", response_model=list[HistoryPoint])
 def get_history(
     base: str = Query(default=config.BASE_CURRENCY, pattern="^(HKD|USD|CNY)$"),
+    method: str = Query(default=config.COST_METHOD, pattern="^(wac|fifo)$"),
     db: Session = Depends(get_db),
 ):
-    return portfolio_history(db, base=base)
+    return portfolio_history(db, base=base, method=method)
 
 
 @router.get("/portfolio/holdings", response_model=list[HoldingOut])
 def get_holdings(
     base: str = Query(default=config.BASE_CURRENCY, pattern="^(HKD|USD|CNY)$"),
+    method: str = Query(default=config.COST_METHOD, pattern="^(wac|fifo)$"),
     db: Session = Depends(get_db),
 ):
-    return portfolio_summary(db, base=base).holdings
+    return portfolio_summary(db, base=base, method=method).holdings
 
 
 # ---- market data ----
 @router.post("/prices/refresh")
-def refresh_prices(db: Session = Depends(get_db)):
-    """Pull latest closes from Yahoo Finance for all instruments."""
-    return market.refresh_all(db)
+def refresh_prices(force: bool = Query(default=False), db: Session = Depends(get_db)):
+    """Pull latest quotes for all instruments (concurrently). Quotes younger
+    than QUOTE_TTL_SECONDS are kept unless force=true."""
+    return market.refresh_all(db, force=force)
 
 
 # ---- cash flows ----
@@ -405,7 +454,7 @@ async def restore_backup(file: UploadFile = File(...), db: Session = Depends(get
         cash = data.get("cash_flows") or []
         syms = {i["symbol"] for i in insts}
         for t in txns:
-            assert t["symbol"] in syms and t["type"] in ("buy", "sell", "dividend")
+            assert t["symbol"] in syms and t["type"] in ("buy", "sell", "dividend", "split")
             date_cls.fromisoformat(t["date"])
             float(t["quantity"]), float(t["price"])
     except Exception:

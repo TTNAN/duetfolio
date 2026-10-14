@@ -35,7 +35,7 @@ export default function TxnModal({ initial, presetInstrumentId, onClose, onSaved
 
   const total = useMemo(() => {
     const q = Number(f.quantity), p = Number(f.price), fee = Number(f.fee || 0);
-    if (!q || Number.isNaN(p)) return null;
+    if (f.type === 'split' || !q || Number.isNaN(p)) return null;
     return f.type === 'buy' ? q * p + fee : q * p - fee;
   }, [f]);
 
@@ -43,9 +43,10 @@ export default function TxnModal({ initial, presetInstrumentId, onClose, onSaved
     e.preventDefault();
     setErr('');
     setBusy(true);
+    const isSplit = f.type === 'split';
     const body = {
-      type: f.type, quantity: Number(f.quantity), price: Number(f.price),
-      fee: Number(f.fee || 0), date: f.date, note: f.note,
+      type: f.type, quantity: Number(f.quantity), price: isSplit ? 0 : Number(f.price),
+      fee: isSplit ? 0 : Number(f.fee || 0), date: f.date, note: f.note,
     };
     try {
       if (editing) await api.updateTransaction(initial.id, { ...body, refetch_fx: refetchFx });
@@ -71,12 +72,14 @@ export default function TxnModal({ initial, presetInstrumentId, onClose, onSaved
 
   const heldQty = inst ? held[inst.id] : null;
   const isDiv = f.type === 'dividend';
+  const isSplit = f.type === 'split';
+  const ratio = Number(f.quantity);
 
   return (
     <Modal title={editing ? t.editTxn : t.addTxn} onClose={onClose}>
       <form className="form" onSubmit={submit}>
         <div className="type-picker" role="radiogroup">
-          {['buy', 'sell', 'dividend'].map((ty) => (
+          {['buy', 'sell', 'dividend', 'split'].map((ty) => (
             <button key={ty} type="button" className={`${ty} ${f.type === ty ? 'on' : ''}`}
               onClick={() => setF({ ...f, type: ty })}>{t.txTypes[ty]}</button>
           ))}
@@ -88,35 +91,48 @@ export default function TxnModal({ initial, presetInstrumentId, onClose, onSaved
             ))}
           </select>
         </label>
-        <div className="row">
-          <label className="field">
-            <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-              {isDiv ? t.fDivQty : t.fQty}
-              {heldQty > 0 && !editing && (
-                f.type === 'buy'
-                  ? <span className="muted">{t.holdingNow(fq(heldQty))}</span>
-                  : <button type="button" className="btn ghost sm" style={{ height: 18, padding: '0 4px' }}
-                      onClick={() => setF({ ...f, quantity: String(heldQty) })}>
-                      {f.type === 'sell' ? t.sellAll : t.holdingNow(fq(heldQty))}
-                    </button>
-              )}
-            </span>
-            <input className="input num" type="number" step="any" min="0" required autoFocus={!editing}
-              value={f.quantity} onChange={set('quantity')} placeholder="100" />
-          </label>
-          <label className="field"><span>{isDiv ? t.fDivPrice : t.fPrice}{inst ? ` (${inst.currency})` : ''}</span>
-            <input className="input num" type="number" step="any" min="0" required
-              value={f.price} onChange={set('price')} placeholder="0.00" />
-          </label>
-        </div>
-        <div className="row">
-          <label className="field"><span>{t.fDate}</span>
-            <input className="input num" type="date" required value={f.date} onChange={set('date')} />
-          </label>
-          <label className="field"><span>{t.fFee}</span>
-            <input className="input num" type="number" step="any" min="0" value={f.fee} onChange={set('fee')} placeholder="0" />
-          </label>
-        </div>
+        {isSplit ? (
+          <div className="row">
+            <label className="field"><span>{t.fRatio}</span>
+              <input className="input num" type="number" step="any" min="0" required autoFocus={!editing}
+                value={f.quantity} onChange={set('quantity')} placeholder="4" />
+              <span className="small muted">{t.ratioHint}</span>
+            </label>
+            <label className="field"><span>{t.fDate}</span>
+              <input className="input num" type="date" required value={f.date} onChange={set('date')} />
+            </label>
+          </div>
+        ) : (<>
+          <div className="row">
+            <label className="field">
+              <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                {isDiv ? t.fDivQty : t.fQty}
+                {heldQty > 0 && !editing && (
+                  f.type === 'buy'
+                    ? <span className="muted">{t.holdingNow(fq(heldQty))}</span>
+                    : <button type="button" className="btn ghost sm" style={{ height: 18, padding: '0 4px' }}
+                        onClick={() => setF({ ...f, quantity: String(heldQty) })}>
+                        {f.type === 'sell' ? t.sellAll : t.holdingNow(fq(heldQty))}
+                      </button>
+                )}
+              </span>
+              <input className="input num" type="number" step="any" min="0" required autoFocus={!editing}
+                value={f.quantity} onChange={set('quantity')} placeholder="100" />
+            </label>
+            <label className="field"><span>{isDiv ? t.fDivPrice : t.fPrice}{inst ? ` (${inst.currency})` : ''}</span>
+              <input className="input num" type="number" step="any" min="0" required
+                value={f.price} onChange={set('price')} placeholder="0.00" />
+            </label>
+          </div>
+          <div className="row">
+            <label className="field"><span>{t.fDate}</span>
+              <input className="input num" type="date" required value={f.date} onChange={set('date')} />
+            </label>
+            <label className="field"><span>{t.fFee}</span>
+              <input className="input num" type="number" step="any" min="0" value={f.fee} onChange={set('fee')} placeholder="0" />
+            </label>
+          </div>
+        </>)}
         <label className="field"><span>{t.fNote}</span>
           <input className="input" value={f.note} onChange={set('note')} placeholder={t.optional} />
         </label>
@@ -124,6 +140,11 @@ export default function TxnModal({ initial, presetInstrumentId, onClose, onSaved
           <div className="small muted" style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
             <span>{t.fxSaved}: <span className="num">{initial.fx_to_hkd ?? '—'}</span></span>
             <label className="check"><input type="checkbox" checked={refetchFx} onChange={(e) => setRefetchFx(e.target.checked)} />{t.refetchFx}</label>
+          </div>
+        )}
+        {isSplit && heldQty > 0 && ratio > 0 && (
+          <div className="form-total">
+            <span className="text-2 small">{t.splitPreview(fq(heldQty), fq(heldQty * ratio))}</span>
           </div>
         )}
         {total != null && (

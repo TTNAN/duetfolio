@@ -2,8 +2,10 @@
 
 Usage:
     cd backend
-    .venv/bin/python seed_demo.py        # creates tables if needed, inserts demo rows
+    .venv/bin/python seed_demo.py             # two-trade minimal demo
+    .venv/bin/python seed_demo.py --showcase  # fictional 6-holding US+HK portfolio
 """
+import sys
 from datetime import date
 
 from app.database import Base, SessionLocal, engine
@@ -14,6 +16,11 @@ def main() -> None:
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:
+        if "--showcase" in sys.argv:
+            from app.demo import seed_showcase
+            print("Seeded showcase portfolio. Now run: POST /api/prices/backfill"
+                  if seed_showcase(db) else "Database already has instruments, skipping seed.")
+            return
         if db.query(Instrument).count() > 0:
             print("Database already has instruments, skipping seed.")
             return

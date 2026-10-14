@@ -61,16 +61,17 @@ function Trades({ reloadKey, reload, openAdd, privacy }) {
                 const inst = insts[x.instrument_id] || {};
                 const gross = x.quantity * x.price;
                 const amt = x.type === 'buy' ? -(gross + x.fee) : gross - x.fee;
+                const isSplit = x.type === 'split';
                 return (
                   <tr key={x.id}>
                     <td className="l num text-2">{x.date}</td>
                     <td className="l"><div className="sym"><SymBadge symbol={x.symbol} market={inst.market} />
                       <div><div className="sym-name">{x.symbol}</div><div className="sym-desc">{inst.name}</div></div></div></td>
                     <td className="l"><span className={`tag ${x.type}`}>{t.txTypes[x.type]}</span></td>
-                    <td>{m(qty(x.quantity))}</td>
-                    <td>{money(x.price, x.price < 10 ? 3 : 2)}</td>
+                    <td>{isSplit ? t.splitShort(qty(x.quantity)) : m(qty(x.quantity))}</td>
+                    <td>{isSplit ? '—' : money(x.price, x.price < 10 ? 3 : 2)}</td>
                     <td className="hide-sm text-2">{x.fee ? money(x.fee) : '—'}</td>
-                    <td>{m((amt > 0 ? '+' : '−') + money(Math.abs(amt)))}<span className="sub">{inst.currency}</span></td>
+                    <td>{isSplit ? <span className="muted">—</span> : <>{m((amt > 0 ? '+' : '−') + money(Math.abs(amt)))}<span className="sub">{inst.currency}</span></>}</td>
                     <td className="l hide-sm muted" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.note}</td>
                     <td>
                       <span className="row-actions">
@@ -161,12 +162,14 @@ function Import({ reload }) {
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
+  const [broker, setBroker] = useState(() => localStorage.getItem('df-broker') || 'auto');
   const input = useRef(null);
+  useEffect(() => { localStorage.setItem('df-broker', broker); }, [broker]);
 
   const onFile = async (file) => {
     if (!file) return;
     setBusy(true); setPreview(null);
-    try { setPreview(await api.importPreview(file)); } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
+    try { setPreview(await api.importPreview(file, broker)); } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   const rows = preview?.rows || [];
   const ok = rows.filter((r) => r.status === 'ok');
@@ -182,7 +185,15 @@ function Import({ reload }) {
   return (
     <section className="card">
       <div className="card-head"><div><h3 className="card-title">{t.importTitle}</h3><div className="card-sub">{t.importHint}</div></div></div>
+      <div className="broker-pick" role="radiogroup" aria-label={t.brokerLabel}>
+        <span className="small muted">{t.brokerLabel}</span>
+        {Object.keys(t.brokers).map((b) => (
+          <button key={b} type="button" role="radio" aria-checked={broker === b}
+            className={`pick ${broker === b ? 'on' : ''}`} onClick={() => setBroker(b)}>{t.brokers[b]}</button>
+        ))}
+      </div>
       <div className={`dropzone ${over ? 'over' : ''}`} onClick={() => input.current?.click()}
+        role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.current?.click(); } }}
         onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); onFile(e.dataTransfer.files?.[0]); }}>
         <FileSpreadsheet size={28} strokeWidth={1.4} />
@@ -192,7 +203,7 @@ function Import({ reload }) {
       {preview && (
         <div style={{ marginTop: 18 }}>
           <div className="card-head" style={{ marginBottom: 10 }}>
-            <span className="text-2 small">{t.previewLine(preview.format, ok.length, rows.length)}</span>
+            <span className="text-2 small">{t.previewLine(t.brokers[preview.format === 'table' ? 'generic' : preview.format] || preview.format, ok.length, rows.length)}</span>
             <button className="btn primary" disabled={!ok.length || busy} onClick={confirm}><Upload size={15} />{t.confirmImport(ok.length)}</button>
           </div>
           <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}>

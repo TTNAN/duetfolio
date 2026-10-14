@@ -25,6 +25,7 @@ import urllib.parse
 import urllib.request
 from datetime import date
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import config
@@ -361,14 +362,22 @@ def fetch_fx_to_hkd(currency: str, d: date | None = None) -> float | None:
     return val
 
 
-def refresh_all(db: Session) -> dict:
+def refresh_all(db: Session, force: bool = False) -> dict:
     """Pull latest closes for every instrument, upsert snapshots.
 
     Price fetches run concurrently (ThreadPoolExecutor) — the old serial
     loop took up to 15s * N instruments on timeouts. DB upserts stay
     sequential in the calling thread (SQLite-safe).
+
+    Quote TTL is persisted: an instrument whose latest snapshot was fetched
+    less than QUOTE_TTL_SECONDS ago is skipped (reported under "fresh"),
+    so the cache survives restarts and is shared by multiple workers.
+    `force=True` ignores the TTL.
     """
     from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime as _dt, timezone as _tz
+
+    from app import config as _cfg
 
     primary = get_provider()
     # Everyone else becomes a fallback, in a fixed preference order.
@@ -376,6 +385,21 @@ def refresh_all(db: Session) -> dict:
     _all = [YFinanceProvider(), EastMoneyProvider(), SinaProvider()]
     chain = [primary] + [p for p in _all if p.name != primary.name]
     instruments = db.query(Instrument).all()
+    fresh: list[str] = []
+    if not force and _cfg.QUOTE_TTL_SECONDS > 0:
+        now_ = _dt.now(_tz.utc).replace(tzinfo=None)
+        last = dict(db.query(PriceSnapshot.instrument_id, func.max(PriceSnapshot.fetched_at))
+                    .group_by(PriceSnapshot.instrument_id).all())
+        keep = []
+        for inst in instruments:
+            ts = last.get(inst.id)
+            if ts is not None:
+                ts = ts.replace(tzinfo=None) if ts.tzinfo else ts
+                if (now_ - ts).total_seconds() < _cfg.QUOTE_TTL_SECONDS:
+                    fresh.append(inst.symbol)
+                    continue
+            keep.append(inst)
+        instruments = keep
 
     def _fetch(inst) -> tuple:
         """Try each provider in order. Returns (inst, result, source)."""
@@ -420,7 +444,7 @@ def refresh_all(db: Session) -> dict:
     db.commit()
     return {"provider": primary.name,
             "fallbacks": [p.name for p in chain[1:]],
-            "updated": updated, "failed": failed}
+            "updated": updated, "failed": failed, "fresh": fresh}
 
 
 # ---- daily history (backfill + benchmarks) ----
@@ -470,7 +494,7 @@ def fetch_daily_history(symbol: str, start: date) -> tuple[list[tuple[date, floa
     return [], None
 
 
-def backfill_history(db: Session) -> dict:
+def backfill_history(db: Session, only: list[int] | None = None, commit: bool = True) -> dict:
     """Fill daily closes from each instrument's first trade date to today.
 
     Only INSERTS missing dates — existing snapshots (live quotes with
@@ -484,7 +508,8 @@ def backfill_history(db: Session) -> dict:
 
     firsts = dict(db.query(Transaction.instrument_id, func.min(Transaction.date))
                   .group_by(Transaction.instrument_id).all())
-    instruments = [i for i in db.query(Instrument).all() if i.id in firsts]
+    instruments = [i for i in db.query(Instrument).all()
+                   if i.id in firsts and (only is None or i.id in only)]
 
     def _fetch(inst):
         rows, src = fetch_daily_history(inst.symbol, firsts[inst.id])
@@ -508,7 +533,10 @@ def backfill_history(db: Session) -> dict:
             have.add(d_)
             inserted += 1
         filled.append(inst.symbol)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return {"filled": filled, "failed": failed, "inserted": inserted}
 
 

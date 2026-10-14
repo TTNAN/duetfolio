@@ -27,8 +27,8 @@ class InstrumentOut(BaseModel):
 
 class TransactionCreate(BaseModel):
     instrument_id: int
-    type: Literal["buy", "sell", "dividend"]
-    quantity: float = Field(..., gt=0)
+    type: Literal["buy", "sell", "dividend", "split"]
+    quantity: float = Field(..., gt=0, description="Shares; for split: the ratio (new shares per old share)")
     price: float = Field(..., ge=0, description="Per-share price in instrument currency")
     fee: float = 0.0
     date: date
@@ -52,7 +52,7 @@ class TransactionOut(BaseModel):
 class TransactionUpdate(BaseModel):
     """Inline edit: every field optional. fx_to_hkd is KEPT unless
     refetch_fx is set — then it's re-fetched for the (possibly new) date."""
-    type: Optional[Literal["buy", "sell", "dividend"]] = None
+    type: Optional[Literal["buy", "sell", "dividend", "split"]] = None
     quantity: Optional[float] = Field(default=None, gt=0)
     price: Optional[float] = Field(default=None, ge=0)
     fee: Optional[float] = Field(default=None, ge=0)
@@ -106,6 +106,7 @@ class PortfolioSummary(BaseModel):
     day_pnl: Optional[float] = None          # sum of today's position P&L, base ccy
     cash_balance: Optional[float] = None     # idle cash, only when cash flows are recorded
     day_pnl_pct: Optional[float] = None      # day_pnl / yesterday's value
+    cost_method: str = "wac"                # wac | fifo — basis used for cost/realized
 
 
 class HistoryPoint(BaseModel):

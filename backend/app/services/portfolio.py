@@ -1,11 +1,13 @@
 """Portfolio engine: holdings are always derived from transactions,
 never stored. Valuation converts everything to the base currency."""
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import config
 from app.models.models import CashFlow, Instrument, PriceSnapshot, Transaction
 from app.schemas.schemas import HistoryPoint, HoldingOut, PortfolioSummary
-from app.services import market
+from app.services import cache, market
+from app.services.ledger import COST_METHODS, Position, apply_txn, cash_effect, split_factor_after
 from app.services.xirr import xirr
 
 # to-HKD rates; extend as needed
@@ -33,55 +35,55 @@ def _to_base(amount: float, currency: str, base: str, rates: dict) -> float | No
     return amount * pivot / base_pivot
 
 
-def compute_holdings(db: Session) -> list[dict]:
-    """Aggregate transactions -> per-instrument position. Pure function of txns."""
+def _txns_by_instrument(db: Session) -> dict[int, list]:
+    """All transactions in ONE query, grouped and ordered per instrument."""
+    out: dict[int, list] = {}
+    for t in db.query(Transaction).order_by(Transaction.date, Transaction.id).all():
+        out.setdefault(t.instrument_id, []).append(t)
+    return out
+
+
+def compute_holdings(db: Session, method: str = config.COST_METHOD,
+                     _txns: dict | None = None) -> list[dict]:
+    """Aggregate transactions -> per-instrument position. Pure function of txns.
+
+    `method` picks the cost basis: "wac" (weighted average) or "fifo".
+    Realized P&L and the remaining cost basis depend on it; quantities,
+    market value and cashflows (hence XIRR) do not.
+    """
+    if method not in COST_METHODS:
+        method = "wac"
+    by_inst = _txns if _txns is not None else _txns_by_instrument(db)
     holdings = []
     for inst in db.query(Instrument).order_by(Instrument.symbol).all():
-        txns = (
-            db.query(Transaction)
-            .filter_by(instrument_id=inst.id)
-            .order_by(Transaction.date, Transaction.id)
-            .all()
-        )
-        qty = 0.0
-        cost = 0.0  # cash spent to acquire the current position (average-cost)
-        realized = 0.0  # cumulative realized P&L in instrument currency
+        txns = by_inst.get(inst.id, [])
+        pos = Position()
         realized_flows = []  # (date, amount_ccy, fx_to_hkd) per sell/dividend
         for t in txns:
-            if t.type == "buy":
-                qty += t.quantity
-                cost += t.quantity * t.price + t.fee
-            elif t.type == "sell":
-                if qty > 0:
-                    # average-cost: selling removes its proportional share of cost.
-                    # sell fees are an expense on proceeds (handled in cashflows),
-                    # they must NOT reduce cost basis — otherwise selling everything
-                    # leaves cost at -fee instead of 0.
-                    # realized = proceeds - cost of shares sold - fee
-                    avg = cost / qty
-                    sq = min(t.quantity, qty)
-                    r = sq * t.price - sq * avg - t.fee
-                    realized += r
-                    realized_flows.append((t.date, r, t.fx_to_hkd))
-                    cost -= sq * avg
-                qty -= t.quantity
-                if qty <= 0:
-                    qty, cost = 0.0, 0.0
-            elif t.type == "dividend":
-                # cash received, net of any withholding tax in fee
-                r = t.quantity * t.price - t.fee
-                realized += r
+            r = apply_txn(pos, t, method)
+            if r is not None:
                 realized_flows.append((t.date, r, t.fx_to_hkd))
+        qty = pos.qty if pos.qty > 1e-9 else 0.0
         holdings.append({
             "instrument": inst,
             "quantity": round(qty, 6),
-            "avg_cost": round(cost / qty, 4) if qty > 0 else 0.0,
-            "invested": round(cost, 2),
-            "realized_pnl": round(realized, 2),
+            "avg_cost": round(pos.cost / qty, 4) if qty > 0 else 0.0,
+            "invested": round(pos.cost, 2) if qty > 0 else 0.0,
+            "realized_pnl": round(pos.realized, 2),
             "realized_flows": realized_flows,
             "transactions": txns,
         })
     return holdings
+
+
+def _latest_prices(db: Session) -> dict[int, PriceSnapshot]:
+    """Latest snapshot per instrument in one query (was one query each)."""
+    sub = (db.query(PriceSnapshot.instrument_id, func.max(PriceSnapshot.date).label("d"))
+           .group_by(PriceSnapshot.instrument_id).subquery())
+    rows = (db.query(PriceSnapshot)
+            .join(sub, (PriceSnapshot.instrument_id == sub.c.instrument_id)
+                  & (PriceSnapshot.date == sub.c.d)).all())
+    return {r.instrument_id: r for r in rows}
 
 
 def latest_price(db: Session, instrument_id: int):
@@ -93,9 +95,23 @@ def latest_price(db: Session, instrument_id: int):
     )
 
 
-def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> PortfolioSummary:
+def _rates_key(rates: dict) -> tuple:
+    return tuple(sorted((k, round(v, 6) if v else None) for k, v in rates.items()))
+
+
+def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY,
+                      method: str = config.COST_METHOD) -> PortfolioSummary:
+    """Cached by (data_version, base, method, FX, today) — see cache.py."""
+    from datetime import date as _d
     base = base.upper()
+    method = method if method in COST_METHODS else "wac"
     rates = _fx_rates()
+    key = ("summary", cache.data_version(db), base, method, _rates_key(rates), _d.today())
+    res = cache.get_or_compute(key, lambda: _portfolio_summary(db, base, method, rates))
+    return res.model_copy(deep=True)
+
+
+def _portfolio_summary(db: Session, base: str, method: str, rates: dict) -> PortfolioSummary:
     holdings_out: list[HoldingOut] = []
     stale: list[str] = []
     fx_gaps: set[str] = set()  # currencies we couldn't convert (FX fetch failed)
@@ -117,9 +133,12 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
     from datetime import timedelta
     div_cutoff = date_cls.today() - timedelta(days=365)
 
-    for h in compute_holdings(db):
+    txns_map = _txns_by_instrument(db)
+    holdings = compute_holdings(db, method, _txns=txns_map)
+    prices = _latest_prices(db)
+    for h in holdings:
         inst = h["instrument"]
-        snap = latest_price(db, inst.id)
+        snap = prices.get(inst.id)
         invested_base = _to_base(h["invested"], inst.currency, base, rates)
         if invested_base is None:
             fx_gaps.add(inst.currency)
@@ -162,6 +181,8 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         # Amounts convert at the FX rate captured on the transaction date
         # (t.fx_to_hkd), falling back to the current rate for old rows.
         for t in h["transactions"]:
+            if t.type == "split":
+                continue
             eff_rates = dict(rates)
             if t.fx_to_hkd:
                 eff_rates[inst.currency] = t.fx_to_hkd
@@ -183,6 +204,8 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         if mv_base is not None and snap:
             h_flows = []
             for t in h["transactions"]:
+                if t.type == "split":
+                    continue
                 eff = dict(rates)
                 if t.fx_to_hkd:
                     eff[inst.currency] = t.fx_to_hkd
@@ -246,14 +269,11 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         bal: dict[str, float] = {}
         for cf in cash_rows:
             bal[cf.currency] = bal.get(cf.currency, 0.0) + (cf.amount if cf.direction == "in" else -cf.amount)
-        for h in compute_holdings(db):
+        for h in holdings:
             ccy = h["instrument"].currency
             for t in h["transactions"]:
-                gross = t.quantity * t.price
-                if t.type == "buy":
-                    bal[ccy] = bal.get(ccy, 0.0) - gross - t.fee
-                else:  # sell proceeds and dividends land in the account
-                    bal[ccy] = bal.get(ccy, 0.0) + gross - t.fee
+                # buys leave the account; sell proceeds and dividends land in it
+                bal[ccy] = bal.get(ccy, 0.0) + cash_effect(t)
         cash_balance_base = 0.0
         for ccy, amt in bal.items():
             b = _to_base(amt, ccy, base, rates)
@@ -313,17 +333,31 @@ def portfolio_summary(db: Session, base: str = config.BASE_CURRENCY) -> Portfoli
         cash_balance=round(cash_balance_base, 2) if cash_balance_base is not None and complete else None,
         day_pnl_pct=round(day_pnl_total / (total_value - day_pnl_total), 4)
         if complete and day_pnl_n and total_value - day_pnl_total > 0 else None,
+        cost_method=method,
     )
 
 
-def portfolio_history(db: Session, base: str = config.BASE_CURRENCY) -> list[HistoryPoint]:
+def portfolio_history(db: Session, base: str = config.BASE_CURRENCY,
+                      method: str = config.COST_METHOD) -> list[HistoryPoint]:
+    """Cached by (data_version, base, method, FX) — see cache.py."""
+    base = base.upper()
+    method = method if method in COST_METHODS else "wac"
+    rates = _fx_rates()
+    key = ("history", cache.data_version(db), base, method, _rates_key(rates))
+    res = cache.get_or_compute(key, lambda: _portfolio_history(db, base, method, rates))
+    return [p.model_copy() for p in res]
+
+
+def _portfolio_history(db: Session, base: str, method: str, rates: dict) -> list[HistoryPoint]:
     """Daily total portfolio value, cost basis and time-weighted return.
 
     Built ONLY from persisted rows — never triggers a live fetch:
-    - quantity / average-cost basis per day is replayed from transactions;
+    - quantity / cost basis per day is replayed from transactions;
     - close per day is the latest snapshot on/before that day (carry-forward);
     - FX uses today's rates for every day (documented approximation), so
       older points mix old prices with today's FX.
+    - daily closes are split-adjusted, so before a recorded split the share
+      count is scaled by the later split ratios when valuing it.
     Days before the first transaction are skipped; days before an
     instrument's first snapshot contribute 0 for that leg.
 
@@ -332,25 +366,30 @@ def portfolio_history(db: Session, base: str = config.BASE_CURRENCY) -> list[His
     benchmark. Daily step, flows assumed at the start of the day:
         r_d = (V_d + dividends_d) / (V_{d-1} + net_buys_d) - 1
     """
-    base = base.upper()
     insts = db.query(Instrument).all()
     if not insts:
         return []
 
-    rates = _fx_rates()
-    txns = {i.id: sorted(db.query(Transaction).filter_by(instrument_id=i.id).all(),
-                         key=lambda t: (t.date, t.id)) for i in insts}
-    snaps = {i.id: sorted(db.query(PriceSnapshot).filter_by(instrument_id=i.id).all(),
-                          key=lambda s: s.date) for i in insts}
+    by_inst = _txns_by_instrument(db)
+    txns = {i.id: by_inst.get(i.id, []) for i in insts}
+    splits = {i.id: [(t.date, t.quantity) for t in txns[i.id] if t.type == "split"]
+              for i in insts}
+    snaps: dict[int, list] = {i.id: [] for i in insts}
+    for sid, sd, sc in (db.query(PriceSnapshot.instrument_id, PriceSnapshot.date,
+                                 PriceSnapshot.close)
+                        .order_by(PriceSnapshot.date).all()):
+        if sid in snaps:
+            snaps[sid].append((sd, sc))
     all_t = [t for ts in txns.values() for t in ts]
     first_txn = min((t.date for t in all_t), default=None)
-    days = sorted({s.date for ss in snaps.values() for s in ss
-                   if first_txn is None or s.date >= first_txn})
+    days = sorted({d for ss in snaps.values() for d, _ in ss
+                   if first_txn is None or d >= first_txn})
     if not days:
         return []
 
     # per-instrument running state, advanced day by day
-    st = {i.id: {"qty": 0.0, "cost": 0.0, "ti": 0, "si": 0, "close": None} for i in insts}
+    pos = {i.id: Position() for i in insts}
+    st = {i.id: {"ti": 0, "si": 0, "close": None} for i in insts}
     out: list[HistoryPoint] = []
     prev_value = None
     index = 1.0
@@ -360,49 +399,42 @@ def portfolio_history(db: Session, base: str = config.BASE_CURRENCY) -> list[His
         ok = True
         for i in insts:
             s_ = st[i.id]
+            p_ = pos[i.id]
             tl = txns[i.id]
             while s_["ti"] < len(tl) and tl[s_["ti"]].date <= d:
                 t = tl[s_["ti"]]
                 s_["ti"] += 1
-                gross = t.quantity * t.price
-                if t.type == "buy":
-                    s_["qty"] += t.quantity
-                    s_["cost"] += gross + t.fee
-                    leg = gross + t.fee
-                elif t.type == "sell":
-                    if s_["qty"] > 0:
-                        avg = s_["cost"] / s_["qty"]
-                        s_["cost"] -= min(t.quantity, s_["qty"]) * avg
-                    s_["qty"] -= t.quantity
-                    if s_["qty"] <= 1e-12:
-                        s_["qty"], s_["cost"] = 0.0, 0.0
-                    leg = -(gross - t.fee)
-                else:  # dividend: income, not a flow
-                    b = _to_base(gross - t.fee, i.currency, base, rates)
+                apply_txn(p_, t, method)
+                if t.type == "split":
+                    continue
+                if t.type == "dividend":  # income, not a flow
+                    b = _to_base(cash_effect(t), i.currency, base, rates)
                     if b is None:
                         ok = False
                     else:
                         income += b
                     continue
-                b = _to_base(leg, i.currency, base, rates)
+                # net money put into positions: buys +, sell proceeds -
+                b = _to_base(-cash_effect(t), i.currency, base, rates)
                 if b is None:
                     ok = False
                 else:
                     flow += b
             sl = snaps[i.id]
-            while s_["si"] < len(sl) and sl[s_["si"]].date <= d:
-                s_["close"] = sl[s_["si"]].close
+            while s_["si"] < len(sl) and sl[s_["si"]][0] <= d:
+                s_["close"] = sl[s_["si"]][1]
                 s_["si"] += 1
-            if s_["qty"] <= 0:
+            if p_.qty <= 1e-9:
                 continue
-            c = _to_base(s_["cost"], i.currency, base, rates)
+            c = _to_base(p_.cost, i.currency, base, rates)
             if c is None:
                 ok = False
             else:
                 cost_total += c
             if s_["close"] is None:
                 continue  # no price yet on this day -> contributes 0
-            leg = _to_base(s_["qty"] * s_["close"], i.currency, base, rates)
+            qty_adj = p_.qty * split_factor_after(splits[i.id], d) if splits[i.id] else p_.qty
+            leg = _to_base(qty_adj * s_["close"], i.currency, base, rates)
             if leg is None:
                 ok = False
                 continue

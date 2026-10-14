@@ -29,10 +29,10 @@ try {
     npm install
   }
   # rebuild when the bundled UI is from an older version (marker per release)
-  if (!(Test-Path dist\.build-0.2.0)) {
+  if (!(Test-Path dist\.build-0.3.0)) {
     Write-Host "[4/4] Building frontend (one-time per version)..."
     npm run build
-    if (Test-Path dist\index.html) { New-Item -ItemType File -Force dist\.build-0.2.0 | Out-Null }
+    if (Test-Path dist\index.html) { New-Item -ItemType File -Force dist\.build-0.3.0 | Out-Null }
   }
 
   Set-Location "$root\backend"

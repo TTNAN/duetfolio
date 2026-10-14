@@ -2,6 +2,9 @@
 
 # duetfolio ◈
 
+[![test](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml/badge.svg)](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/TTNAN/duetfolio)
+
 **Holding both US and HK stocks? One glance tells you the total P&L in your home currency.**
 
 ![duetfolio dashboard](assets/dashboard.png)
@@ -17,6 +20,17 @@ duetfolio is a portfolio tracker that runs on your own computer, built for peopl
 - Every buy, sell and dividend timestamped and sized into a true **annualized return (XIRR)** — not just "up a few percent"
 
 No sign-up, no data uploads. Your ledger lives in a local SQLite file.
+
+### New in v0.3
+
+- **Stock splits & consolidations**: a new "Split" entry takes the ratio (4 for 1-for-4, 0.1 for 10-to-1); share count updates, total cost stays, and the history curve shows no fake crash on the split date
+- **Average cost or FIFO**: switch the cost-basis method in Settings so realized/unrealized P&L match your broker (total P&L and XIRR are unaffected)
+- **Broker exports as-is**: built-in presets for Futu / moomoo, Tiger, IBKR and Schwab — no column renaming; itemized fees are summed
+- **Docker fixed**: the frontend image no longer fails to build; nginx proxies `/api` so it works on a NAS or remote server; the API runs as non-root with pinned dependencies
+- **Faster**: portfolio results are cached per data version (recomputed only when data changes); quotes fetched in the last 5 minutes aren't re-fetched, even across restarts
+- **Sturdier XIRR**: frequent large, alternating flows converge (Brent's method takes over when Newton stalls)
+- **Keyboard & mobile**: Esc closes dialogs, focus stays inside them, arrow keys step through chart days; wide tables scroll sideways on phones with the symbol column pinned
+- **Live demo mode**: `DEMO_MODE=true` serves a read-only fictional portfolio, wired to the Deploy button
 
 ### New in v0.2
 
@@ -50,7 +64,7 @@ No sign-up, no data uploads. Your ledger lives in a local SQLite file.
 
 **③ Refresh quotes** — hit "Refresh" on the dashboard: total value, P&L and XIRR appear, with a "quotes as of" timestamp next to the button.
 
-> Lots of trades? Transactions → **Import broker CSV** supports Futu / IBKR exports — preview first, confirm to write; unknown tickers auto-create instruments.
+> Lots of trades? Transactions → **Import broker CSV** supports raw Futu, Tiger, IBKR and Schwab exports (pick the broker or auto-detect) — preview first, confirm to write; unknown tickers auto-create instruments.
 > Deposits/withdrawals? The **Cash** card at the bottom of Transactions records money in/out, and XIRR counts it — the annualized figure becomes "what this money earned", not just "what these tickers earned".
 
 ## FAQ
@@ -85,8 +99,9 @@ db         SQLite (zero-config default) / PostgreSQL (via DATABASE_URL)
 
 ### Conventions
 
-- **Positions & cost**: average-cost method. Buys scale cost up proportionally, sells release it proportionally, cost hits exactly zero on full exit (never negative).
-- **XIRR**: pure-Python Newton solver (`backend/app/services/xirr.py`). Without cash movements: buys (negative, incl. fees) / sells & dividends (positive, net of fees), terminal = position value. Once deposits/withdrawals are recorded it switches to the account view: only deposits (negative) / withdrawals (positive) are flows, terminal = positions + idle cash (v0.1 mixed both and counted the same money twice). Terminal dated at the **latest quote date**. Each holding also gets its own XIRR. Returns null on <2 flows or single-signed flows.
+- **Positions & cost**: weighted average cost by default (`COST_METHOD=fifo` or the Settings toggle for FIFO lots). Sell fees reduce proceeds, never the remaining basis; cost hits zero on full exit. Total P&L and XIRR are identical under both methods — only the realized/unrealized split moves.
+- **Splits**: transaction type `split`, `quantity` holds the ratio. Shares × ratio, lot unit cost ÷ ratio, total cost unchanged, no cash flow. Yahoo/East Money daily closes are split-adjusted, so pre-split history is valued at shares × all later split ratios; recording or deleting a split drops that instrument's stored closes and re-fetches adjusted history.
+- **XIRR**: pure Python (`backend/app/services/xirr.py`): Newton-Raphson with an analytic derivative; if it stalls, scan −99.99%…+1000% for sign changes and solve each bracket with Brent's method; with several roots, take the one nearest 10%. Without cash movements: buys (negative, incl. fees) / sells & dividends (positive, net of fees), terminal = position value. Once deposits/withdrawals are recorded it switches to the account view: only deposits (negative) / withdrawals (positive) are flows, terminal = positions + idle cash (v0.1 mixed both and counted the same money twice). Terminal dated at the **latest quote date**. Each holding also gets its own XIRR. Returns null on <2 flows or single-signed flows.
 - **Time-weighted return**: `r_d = (V_d + dividends_d) / (V_{d-1} + net_buys_d) − 1`, chained daily; benchmarks (SPY / QQQ / 2800.HK / 3033.HK) rebased to the first day of the range.
 - **FX**: each transaction captures the **trade-date** FX into `fx_to_hkd`; XIRR flows convert at that rate. Latest rates cached 10 min TTL.
 - **Missing-data circuit breaker**: if any holding lacks a quote or any currency lacks FX, totals and XIRR go null (with a banner naming the gaps) — no "partially trustworthy" numbers.
@@ -107,17 +122,17 @@ db         SQLite (zero-config default) / PostgreSQL (via DATABASE_URL)
 | GET/POST/DELETE | `/api/instruments…` | instruments |
 | GET | `/api/instruments/search?q=` | fuzzy symbol/CJK-name search |
 | GET/POST/PUT/DELETE | `/api/transactions…` | flows, incl. inline edit |
-| POST | `/api/transactions/import/preview` | broker CSV parse preview (Futu/IBKR/generic) |
+| POST | `/api/transactions/import/preview?broker=` | broker CSV parse preview (`auto`/`futu`/`tiger`/`ibkr`/`schwab`/`generic`) |
 | POST | `/api/transactions/import` | confirm import (unknown tickers auto-created) |
 | GET/POST/DELETE | `/api/cash…` | deposits/withdrawals |
-| GET | `/api/portfolio/summary?base=` | totals, XIRR, dividends, holdings |
-| GET | `/api/portfolio/history?base=` | curve points (value / cost / time-weighted return) |
+| GET | `/api/portfolio/summary?base=&method=` | totals, XIRR, dividends, holdings (`method=wac|fifo`) |
+| GET | `/api/portfolio/history?base=&method=` | curve points (value / cost / time-weighted return) |
 | POST | `/api/prices/backfill` | backfill daily closes since first trade (missing days only) |
 | GET | `/api/benchmark?symbol=&start=` | benchmark daily closes (1h cache) |
 | GET | `/api/instruments/{id}/prices` | stored daily closes for one instrument |
 | GET | `/api/transactions/export.csv` | export all transactions |
 | GET / POST | `/api/backup` · `/api/backup/restore` | full backup / validated restore |
-| POST | `/api/prices/refresh` | refresh all quotes (8-thread pool) |
+| POST | `/api/prices/refresh?force=` | refresh all quotes (8-thread pool; skips quotes < 5 min old unless `force=true`) |
 
 Interactive docs at `/docs` once the backend is running.
 
@@ -127,10 +142,11 @@ Interactive docs at `/docs` once the backend is running.
 cd backend
 python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 .venv/bin/uvicorn app.main:app --reload   # migrations run automatically on boot
-.venv/bin/python -m pytest tests/         # 31 tests
+.venv/bin/python -m pytest tests/         # 47 tests
 
 cd ../frontend
 npm install && npm run dev
+npm run lint                              # ESLint (also runs in CI)
 ```
 
 ### Configuration (env vars)
@@ -140,15 +156,32 @@ npm install && npm run dev
 | `MARKET_PROVIDER` | `yfinance` | primary quote source; `eastmoney` switches. Missed symbols are retried in `yfinance → eastmoney → sina` order |
 | `BASE_CURRENCY` | `HKD` | base currency |
 | `DATABASE_URL` | local SQLite | `postgresql+psycopg2://…` for Postgres |
-| `CORS_ORIGINS` | `*` | frontend CORS |
+| `CORS_ORIGINS` | `*` (empty in Docker) | allowed frontend origins, comma-separated; empty = same-origin only |
+| `COST_METHOD` | `wac` | default cost basis: `wac` average / `fifo` |
+| `QUOTE_TTL_SECONDS` | `300` | don't re-fetch quotes younger than this; `0` disables |
+| `DEMO_MODE` | unset | `true` = read-only live demo (seeds a fictional portfolio into an empty DB) |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` | unset | when set, `/api/*` requires auth (except health) |
 | `YFINANCE_TIMEOUT` | `15` | yfinance timeout, seconds |
 
 ### Deploy
 
+**Docker Compose (NAS / home server / VPS)**
+
 ```bash
-docker compose up --build
+docker compose up -d --build
+# open http://<host>:5173
 ```
+
+The web container (nginx) proxies `/api/` to the API container, so the browser only ever talks to one origin — it works the same on a NAS or a remote server. Data lives in the `duetfolio-data` volume. If you expose it, enable `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` in `docker-compose.yml`.
+
+**Single container**
+
+```bash
+docker build -t duetfolio .
+docker run -d -p 8000:8000 -v duetfolio-data:/data duetfolio
+```
+
+**Live demo (one click)**: the Deploy to Render button uses `render.yaml` to start a read-only demo on Render's free plan (`DEMO_MODE=true`; a fictional portfolio is seeded and its prices back-filled on every start). Free instances sleep when idle and have no persistent disk — demo only.
 
 ## Disclaimer
 

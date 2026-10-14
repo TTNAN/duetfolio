@@ -58,6 +58,10 @@ export default function Settings({ reload, health }) {
           <Row title={t.sBase} desc={t.sBaseD}>
             <Seg value={prefs.base} onChange={(v) => setPref('base', v)} options={['HKD', 'USD', 'CNY'].map((c) => ({ value: c, label: c }))} />
           </Row>
+          <Row title={t.sCost} desc={t.sCostD}>
+            <Seg value={prefs.costMethod} onChange={(v) => setPref('costMethod', v)}
+              options={['wac', 'fifo'].map((k) => ({ value: k, label: t.cost[k] }))} />
+          </Row>
           <Row title={t.sPrivacy} desc={t.sPrivacyD}>
             <Seg value={prefs.privacy ? 'on' : 'off'} onChange={(v) => setPref('privacy', v === 'on')}
               options={[{ value: 'off', label: t.off }, { value: 'on', label: t.on }]} />

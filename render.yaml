@@ -1,0 +1,17 @@
+# One-click deploy of a public, read-only demo on Render's free plan.
+# Free instances have no persistent disk and sleep when idle; DEMO_MODE
+# re-seeds the showcase portfolio on every start, so that's fine.
+# For your own data, deploy without DEMO_MODE and attach a disk at /data
+# (paid plan), and set BASIC_AUTH_USER / BASIC_AUTH_PASS.
+services:
+  - type: web
+    name: duetfolio-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEMO_MODE
+        value: "true"
+      - key: BASE_CURRENCY
+        value: HKD

@@ -1,0 +1,4 @@
+# keep shell scripts LF (a CRLF shebang breaks the Docker entrypoint)
+*.sh text eol=lf
+# Windows launchers: store and check out byte-for-byte (CRLF)
+*.bat -text

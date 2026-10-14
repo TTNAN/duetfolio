@@ -80,3 +80,13 @@ class CashFlow(Base):
     amount = Column(Float, nullable=False)  # positive, in `currency`
     currency = Column(String(8), nullable=False, default="HKD")
     note = Column(String(256), default="", nullable=False)
+
+
+class AppMeta(Base):
+    """Tiny key/value table. `data_version` is bumped on every write that
+    can change a computed number (transactions, prices, cash, instruments),
+    so cached portfolio results are invalidated across processes/workers."""
+    __tablename__ = "app_meta"
+
+    key = Column(String(32), primary_key=True)
+    value = Column(Integer, nullable=False, default=0)

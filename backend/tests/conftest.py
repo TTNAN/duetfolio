@@ -11,6 +11,16 @@ from app.services import portfolio as pf
 pf._fx_rates = lambda: {"HKD": 1.0, "USD": 7.85, "CNY": 1.09}
 
 
+@pytest.fixture(autouse=True)
+def _fresh_cache():
+    # every test builds its own in-memory DB whose data_version restarts at
+    # 0, so the process-wide result cache must not leak between tests
+    from app.services import cache
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture()
 def db():
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})

@@ -21,7 +21,7 @@ function fmtDate(iso, long) {
 }
 
 export default function LineChart({
-  series, height = 260, yFormat = (v) => v, tipValue = yFormat, markers = [], zeroLine = false,
+  series, height = 260, yFormat = (v) => v, tipValue = yFormat, markers = [], zeroLine = false, label = '',
 }) {
   const [ref, width] = useWidth();
   const [hover, setHover] = useState(null);
@@ -75,11 +75,27 @@ export default function LineChart({
   const markerByDate = new Map();
   markers.forEach((m) => { if (!markerByDate.has(m.date)) markerByDate.set(m.date, m); });
 
+  // keyboard: focus the chart, then ←/→ step through days, Home/End jump
+  const onKey = (e) => {
+    const step = e.shiftKey ? 10 : 1;
+    let i = hover;
+    if (e.key === 'ArrowLeft') i = (hover ?? n) - step;
+    else if (e.key === 'ArrowRight') i = (hover ?? -1) + step;
+    else if (e.key === 'Home') i = 0;
+    else if (e.key === 'End') i = n - 1;
+    else if (e.key === 'Escape') { setHover(null); return; }
+    else return;
+    e.preventDefault();
+    setHover(Math.max(0, Math.min(n - 1, i)));
+  };
+
   const hx = hover != null ? xs(hover) : null;
   const tipLeft = hx != null ? Math.min(Math.max(hx, 80), W - 150) : 0;
 
   return (
-    <div ref={ref} className="chart" style={{ height }}>
+    <div ref={ref} className="chart" style={{ height }} tabIndex={0} role="img"
+      aria-label={label ? `${label}: ${fmtDate(dates[0], true)} – ${fmtDate(dates[n - 1], true)}` : undefined}
+      onKeyDown={onKey} onBlur={() => setHover(null)}>
       {width > 0 && (
         <svg width={W} height={H} onMouseMove={onMove} onMouseLeave={() => setHover(null)}
           onTouchStart={onMove} onTouchMove={onMove} onTouchEnd={() => setHover(null)}>
@@ -136,7 +152,7 @@ export default function LineChart({
         </svg>
       )}
       {hover != null && (
-        <div className="chart-tip" style={{ left: tipLeft, transform: 'translateX(-50%)' }}>
+        <div className="chart-tip" aria-live="polite" style={{ left: tipLeft, transform: 'translateX(-50%)' }}>
           <div className="tip-date num">{fmtDate(dates[hover], true)}</div>
           {series.map((s, si) => {
             const v = maps[si].get(dates[hover]);

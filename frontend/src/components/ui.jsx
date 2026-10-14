@@ -60,20 +60,59 @@ export function AnimatedNumber({ value, format }) {
 }
 
 /* ---------- modal & drawer ---------- */
-function useEsc(onClose) {
+// Stack of open dialogs: Escape and the focus trap only act on the topmost,
+// so Escape in a modal opened from a drawer closes just the modal.
+const dialogStack = [];
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), '
+  + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function useDialog(ref, onClose) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
-    const h = (e) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
+    const el = ref.current;
+    const token = {};
+    dialogStack.push(token);
+    const opener = document.activeElement;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // focus the autofocus field if any, otherwise the dialog itself
+    requestAnimationFrame(() => {
+      if (el && !el.contains(document.activeElement)) {
+        (el.querySelector('[autofocus], [data-autofocus]') || el).focus();
+      }
+    });
+    const onKey = (e) => {
+      if (dialogStack[dialogStack.length - 1] !== token) return;
+      if (e.key === 'Escape') { e.stopPropagation(); closeRef.current(); return; }
+      if (e.key !== 'Tab' || !el) return;
+      const items = [...el.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null);
+      if (!items.length) { e.preventDefault(); el.focus(); return; }
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === el)) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      const i = dialogStack.indexOf(token);
+      if (i >= 0) dialogStack.splice(i, 1);
+      if (!dialogStack.length) document.body.style.overflow = prevOverflow;
+      if (opener && typeof opener.focus === 'function' && document.contains(opener)) opener.focus();
+    };
+  }, [ref]);
 }
 
 export function Modal({ title, onClose, children, footer }) {
-  useEsc(onClose);
+  const ref = useRef(null);
+  useDialog(ref, onClose);
   return createPortal(
     <>
       <div className="overlay" onClick={onClose} />
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={ref} className="modal" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <div className="modal-head">
           <h2 className="modal-title">{title}</h2>
           <button className="btn ghost icon sm" onClick={onClose} aria-label="close"><X size={16} /></button>
@@ -86,12 +125,13 @@ export function Modal({ title, onClose, children, footer }) {
   );
 }
 
-export function Drawer({ onClose, children }) {
-  useEsc(onClose);
+export function Drawer({ onClose, children, label }) {
+  const ref = useRef(null);
+  useDialog(ref, onClose);
   return createPortal(
     <>
       <div className="overlay" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true">{children}</aside>
+      <aside ref={ref} className="drawer" role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>{children}</aside>
     </>,
     document.body,
   );

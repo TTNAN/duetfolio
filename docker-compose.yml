@@ -1,22 +1,29 @@
+# docker compose up -d --build   ->   open http://<host>:5173
+# The UI container proxies /api to the api container, so this works the
+# same from the machine itself, a home NAS, or a remote server.
 services:
   api:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile.backend
-    ports:
-      - "8000:8000"
+    # not published: only reachable through the web container's /api proxy.
+    # Uncomment to call the API directly from the host.
+    # ports:
+    #   - "8000:8000"
     volumes:
       - duetfolio-data:/data
     environment:
       - BASE_CURRENCY=HKD
+      # - MARKET_PROVIDER=eastmoney        # closer to real-time in mainland China
+      # - BASIC_AUTH_USER=me               # set both to password-protect the API
+      # - BASIC_AUTH_PASS=change-me
+      # - CORS_ORIGINS=https://my.domain   # only for a separately hosted UI
     restart: unless-stopped
 
   web:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile.frontend
-      args:
-        VITE_API_URL: http://localhost:8000
     ports:
       - "5173:80"
     depends_on:

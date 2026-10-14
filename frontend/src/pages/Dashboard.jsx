@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, History, AlertTriangle, X, Plus, ChevronDown, ChevronRight } from 'lucide-react';
-import { api } from '../api.js';
+import { api, isAbort } from '../api.js';
 import { useLang } from '../i18n.js';
 import { usePrefs } from '../prefs.js';
 import { money, signed, pct, qty, tone, mask, compact, isNum } from '../format.js';
@@ -86,7 +86,7 @@ function Hero({ data, privacy }) {
 }
 
 /* ---------------- performance ---------------- */
-function Performance({ base, reloadKey, privacy, onBackfilled }) {
+function Performance({ base, method, reloadKey, privacy, onBackfilled }) {
   const { t } = useLang();
   const [pts, setPts] = useState(null);
   const [mode, setMode] = useState(() => localStorage.getItem('df-perf-mode') || 'value');
@@ -99,11 +99,17 @@ function Performance({ base, reloadKey, privacy, onBackfilled }) {
   useEffect(() => { localStorage.setItem('df-perf-mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('df-perf-range', range); }, [range]);
   useEffect(() => { localStorage.setItem('df-bench', bench); }, [bench]);
-  useEffect(() => { api.benchmarks().then(setBenchList).catch(() => {}); }, []);
   useEffect(() => {
+    const ac = new AbortController();
+    api.benchmarks(ac.signal).then(setBenchList).catch(() => {});
+    return () => ac.abort();
+  }, []);
+  useEffect(() => {
+    const ac = new AbortController();
     setPts(null);
-    api.history(base).then(setPts).catch(() => setPts([]));
-  }, [base, reloadKey]);
+    api.history(base, method, ac.signal).then(setPts).catch((e) => { if (!isAbort(e)) setPts([]); });
+    return () => ac.abort();
+  }, [base, method, reloadKey]);
 
   const valid = useMemo(() => (pts || []).filter((p) => p.value != null), [pts]);
   const last = valid.length ? valid[valid.length - 1].date : null;
@@ -111,9 +117,12 @@ function Performance({ base, reloadKey, privacy, onBackfilled }) {
   const inRange = useMemo(() => valid.filter((p) => !start || p.date >= start), [valid, start]);
 
   useEffect(() => {
-    if (mode !== 'return' || !inRange.length) return;
+    if (mode !== 'return' || !inRange.length) return undefined;
+    const ac = new AbortController();
     setBenchPts(null);
-    api.benchmark(bench, inRange[0].date).then((r) => setBenchPts(r.points)).catch(() => setBenchPts([]));
+    api.benchmark(bench, inRange[0].date, ac.signal).then((r) => setBenchPts(r.points))
+      .catch((e) => { if (!isAbort(e)) setBenchPts([]); });
+    return () => ac.abort();
   }, [mode, bench, inRange.length && inRange[0].date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doBackfill = async () => {
@@ -208,7 +217,7 @@ function Performance({ base, reloadKey, privacy, onBackfilled }) {
           </select>
         )}
       </div>
-      <LineChart series={series} height={330} yFormat={yFormat} zeroLine={mode === 'return'}
+      <LineChart series={series} height={330} yFormat={yFormat} zeroLine={mode === 'return'} label={t.perf}
         tipValue={(v) => (mode === 'return' ? pct(v) : mask(money(v), privacy))} />
     </section>
   );
@@ -348,14 +357,20 @@ function HoldingDrawer({ h, onClose, privacy, openAdd }) {
   const [txns, setTxns] = useState(null);
   const [prices, setPrices] = useState(null);
   useEffect(() => {
-    api.transactions(h.instrument_id).then(setTxns).catch(() => setTxns([]));
-    api.instrumentPrices(h.instrument_id).then(setPrices).catch(() => setPrices([]));
+    const ac = new AbortController();
+    setTxns(null); setPrices(null);
+    api.transactions(h.instrument_id, ac.signal).then(setTxns).catch((e) => { if (!isAbort(e)) setTxns([]); });
+    api.instrumentPrices(h.instrument_id, ac.signal).then(setPrices).catch((e) => { if (!isAbort(e)) setPrices([]); });
+    return () => ac.abort();
   }, [h.instrument_id]);
   const m = (s) => mask(s, privacy);
-  const markers = (txns || []).map((x) => ({ date: x.date, kind: x.type, label: `${t.txTypes[x.type]} ${qty(x.quantity)} @ ${x.price}` }));
+  const markers = (txns || []).map((x) => ({
+    date: x.date, kind: x.type,
+    label: x.type === 'split' ? `${t.txTypes.split} ${t.splitShort(qty(x.quantity))}` : `${t.txTypes[x.type]} ${qty(x.quantity)} @ ${x.price}`,
+  }));
   const ccy = h.currency;
   return (
-    <Drawer onClose={onClose}>
+    <Drawer onClose={onClose} label={h.symbol}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div className="sym">
           <SymBadge symbol={h.symbol} market={h.market} />
@@ -396,8 +411,8 @@ function HoldingDrawer({ h, onClose, privacy, openAdd }) {
               <tr key={x.id}>
                 <td className="l num">{x.date}</td>
                 <td className="l"><span className={`tag ${x.type}`}>{t.txTypes[x.type]}</span></td>
-                <td className="num">{m(qty(x.quantity))}</td>
-                <td className="num">@ {x.price}</td>
+                <td className="num">{x.type === 'split' ? t.splitShort(qty(x.quantity)) : m(qty(x.quantity))}</td>
+                <td className="num">{x.type === 'split' ? '' : `@ ${x.price}`}</td>
               </tr>
             ))}
             {txns.length === 0 && <tr><td className="l muted">{t.noTxns}</td></tr>}
@@ -418,17 +433,23 @@ export default function Dashboard({ reloadKey, reload, go, openAdd, provider }) 
   const [refreshing, setRefreshing] = useState(false);
   const [panel, setPanel] = useState(null);
 
-  const load = useCallback(async () => {
+  const method = prefs.costMethod;
+  useEffect(() => {
+    // abort the in-flight request when base / method change quickly, so a
+    // slow old response can't overwrite the newer one
+    const ac = new AbortController();
     setErr('');
-    try { setData(await api.summary(base)); } catch { setErr(t.apiDown); }
-  }, [base, t]);
-  useEffect(() => { load(); }, [load, reloadKey]);
+    api.summary(base, method, ac.signal).then(setData)
+      .catch((e) => { if (!isAbort(e)) setErr(t.apiDown); });
+    return () => ac.abort();
+  }, [base, method, reloadKey, t]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       const r = await api.refreshPrices();
       if (r.failed?.length) toast(t.priceFailed(r.failed.join(', ')), 'error');
+      else if (!r.updated.length && r.fresh?.length) toast(t.quotesFresh);
       else toast(t.refreshed(r.updated.length));
       reload();
     } catch (e) { toast(e.message, 'error'); } finally { setRefreshing(false); }
@@ -460,7 +481,7 @@ export default function Dashboard({ reloadKey, reload, go, openAdd, provider }) 
   );
 
   if (err && !data) {
-    return <>{head}<div className="banner error"><AlertTriangle size={16} />{err}<button className="btn sm" style={{ marginLeft: 'auto' }} onClick={load}>{t.retry}</button></div></>;
+    return <>{head}<div className="banner error"><AlertTriangle size={16} />{err}<button className="btn sm" style={{ marginLeft: 'auto' }} onClick={reload}>{t.retry}</button></div></>;
   }
   if (!data) {
     return (
@@ -509,7 +530,7 @@ export default function Dashboard({ reloadKey, reload, go, openAdd, provider }) 
       <div className="stack">
         <Hero data={data} privacy={prefs.privacy} />
         <div className="grid grid-main">
-          <Performance base={base} reloadKey={reloadKey} privacy={prefs.privacy} onBackfilled={reload} />
+          <Performance base={base} method={method} reloadKey={reloadKey} privacy={prefs.privacy} onBackfilled={reload} />
           <Allocation data={data} privacy={prefs.privacy} />
         </div>
         <Holdings data={data} privacy={prefs.privacy} onOpen={setPanel} />

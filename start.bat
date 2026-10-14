@@ -45,10 +45,10 @@ if "%NEED_NPM%"=="1" (
     exit /b 1
   )
 )
-if not exist "dist\.build-0.2.0" (
+if not exist "dist\.build-0.3.0" (
   echo [4/4] Building frontend (one-time per version, ~30 seconds)...
   call npm run build
-  if exist "dist\index.html" type nul > "dist\.build-0.2.0"
+  if exist "dist\index.html" type nul > "dist\.build-0.3.0"
 )
 
 echo.

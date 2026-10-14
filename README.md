@@ -2,6 +2,9 @@
 
 # duetfolio ◈
 
+[![test](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml/badge.svg)](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/TTNAN/duetfolio)
+
 **美股港股一起买？每天打开看一眼，就知道按港币算一共赚了多少。**
 
 ![duetfolio dashboard](assets/dashboard.png)
@@ -17,6 +20,17 @@ duetfolio 是一个跑在你自己电脑上的组合记账本，专门给**同�
 - 每笔买入、卖出、分红都按真实时间和金额，算出**年化收益率（XIRR）**——不是简单的"涨了几个点"，而是"这笔钱到底跑赢了多少"
 
 不用注册、不用上传数据，账本存在你电脑本地。
+
+### v0.3 新增
+
+- **拆合股**：新增「拆合股」记账类型，填比例即可（1 拆 4 填 4，10 股合 1 填 0.1），持股数自动换算、总成本不变，历史净值曲线不会在拆股日出现假暴跌
+- **加权平均 / 先进先出 可切换**：设置里一键切换成本口径，已实现和未实现盈亏能和券商 App 对上（总盈亏、XIRR 不受影响）
+- **券商账单直接导入**：内置富途 / moomoo、老虎、盈透 IBKR、嘉信 Schwab 原始导出格式，不用改 Excel 列名；分项费用自动加总
+- **Docker 部署修好了**：之前镜像构建会直接失败；现在前端容器内置反向代理，放到 NAS / 远程服务器上也能直接用，后端改为非 root 运行、依赖版本锁定
+- **更快**：组合计算结果按数据版本缓存，数据没变不重复计算；行情 5 分钟内刚拉过不重复请求（重启后依然有效）
+- **XIRR 更稳**：频繁大额进出、正负交替的现金流也能算出结果（牛顿法不收敛时自动切换 Brent 区间求解）
+- **键盘与手机体验**：弹窗 Esc 关闭、焦点不跑出弹窗、图表可用方向键查看每日数值；手机上宽表格横向滑动时首列固定
+- **在线演示模式**：`DEMO_MODE=true` 启动即为只读演示（虚构组合），配合一键部署按钮
 
 ### v0.2 新增
 
@@ -50,7 +64,7 @@ duetfolio 是一个跑在你自己电脑上的组合记账本，专门给**同�
 
 **③ 刷新行情** — 回总览点「刷新行情」（或按 `R`），总资产、今日盈亏、XIRR 就出来了。曲线是空的？点「补全历史行情」，几秒后就有完整走势。
 
-> 成交记录多？「流水」页 → 「导入券商 CSV」，支持富途 / 盈透导出的成交记录，先预览再确认写入，没见过的代码会自动建标的。
+> 成交记录多？「流水」页 → 「导入券商 CSV」，支持富途、老虎、盈透、嘉信导出的原始账单（选对券商格式或用自动识别），先预览再确认写入，没见过的代码会自动建标的。
 > 有入金出金？「流水」→「资金进出」记一笔转入 / 转出。记了之后 XIRR 切换为**账户视角**：只把进出账户的钱当现金流，终值 = 持仓市值 + 账上闲置现金——算的是"这笔钱的回报"。没记就按交易本身算。
 
 ## 常见问题
@@ -88,8 +102,9 @@ db         SQLite（默认零配置）/ PostgreSQL（DATABASE_URL 一键切换�
 
 ### 核心口径
 
-- **持仓与成本**：平均成本法。买入按比例抬高成本，卖出按比例释放成本，清仓后成本归零（不会出现负成本）。
-- **XIRR**：纯 Python 实现（牛顿迭代，`backend/app/services/xirr.py`）。没有记资金进出时：现金流 = 买入（负，含手续费）/ 卖出与分红（正，扣手续费），终值 = 持仓市值。记了资金进出后切换为账户视角：现金流只有转入（负）/ 转出（正），终值 = 持仓市值 + 闲置现金（v0.1 两者混算，同一笔钱算了两次，会把 XIRR 严重拉低）。终值取**最新行情日期**（不用今天，避免年化虚高）。每只持仓另算自己的 XIRR。
+- **持仓与成本**：默认加权平均成本法（`COST_METHOD=fifo` 或设置页可切换先进先出）。卖出手续费只减少到手金额，不会改动剩余持仓成本；清仓后成本归零。两种口径下总盈亏、XIRR 完全一致，只是已实现/未实现的拆分不同。
+- **拆合股**：交易类型 `split`，`quantity` 存比例。持股数 × 比例、批次单价 ÷ 比例、总成本不变、无现金流。雅虎/东财日线是复权后的价格，所以历史净值在拆股日之前按「股数 × 之后所有拆股比例」估值；记录或删除拆股时，该标的旧日线会被清掉并重新拉取复权数据。
+- **XIRR**：纯 Python 实现（`backend/app/services/xirr.py`）：先用牛顿法（解析导数），不收敛时扫描 −99.99%～+1000% 区间找变号点，再用 Brent 法求根；多个根时取最接近 10% 的那个。没有记资金进出时：现金流 = 买入（负，含手续费）/ 卖出与分红（正，扣手续费），终值 = 持仓市值。记了资金进出后切换为账户视角：现金流只有转入（负）/ 转出（正），终值 = 持仓市值 + 闲置现金（v0.1 两者混算，同一笔钱算了两次，会把 XIRR 严重拉低）。终值取**最新行情日期**（不用今天，避免年化虚高）。每只持仓另算自己的 XIRR。
 - **时间加权收益**：`r_d = (V_d + 当日分红) / (V_{d-1} + 当日净买入) − 1`，逐日连乘；基准用 SPY / QQQ / 2800.HK / 3033.HK 日线，从区间第一天归一。
 - **汇率**：每笔交易在记账时抓取**交易当日**汇率存入 `fx_to_hkd`，XIRR 现金流按当时汇率折算；最新汇率 10 分钟 TTL 缓存。
 - **缺数据熔断**：任一持仓缺行情、或任一币种缺汇率时，总市值 / 总盈亏 / XIRR 直接置空（并在前端黄条提示缺哪只），不输出"部分可信"的总数。
@@ -110,12 +125,12 @@ db         SQLite（默认零配置）/ PostgreSQL（DATABASE_URL 一键切换�
 | GET/POST/DELETE | `/api/instruments…` | 标的增删查 |
 | GET | `/api/instruments/search?q=` | 代码/中文名模糊搜索 |
 | GET/POST/PUT/DELETE | `/api/transactions…` | 流水增删改查（含行内编辑） |
-| POST | `/api/transactions/import/preview` | 券商 CSV 解析预览（富途/盈透/通用表） |
+| POST | `/api/transactions/import/preview?broker=` | 券商 CSV 解析预览（`auto`/`futu`/`tiger`/`ibkr`/`schwab`/`generic`） |
 | POST | `/api/transactions/import` | 确认导入（未知代码自动建标的） |
 | GET/POST/DELETE | `/api/cash…` | 现金转入/转出 |
-| GET | `/api/portfolio/summary?base=` | 总市值/盈亏/XIRR/分红/持仓明细 |
-| GET | `/api/portfolio/history?base=` | 净值曲线点（市值 / 成本 / 时间加权收益） |
-| POST | `/api/prices/refresh` | 刷新全部行情（8 线程并发） |
+| GET | `/api/portfolio/summary?base=&method=` | 总市值/盈亏/XIRR/分红/持仓明细（`method=wac|fifo`） |
+| GET | `/api/portfolio/history?base=&method=` | 净值曲线点（市值 / 成本 / 时间加权收益） |
+| POST | `/api/prices/refresh?force=` | 刷新全部行情（8 线程并发；5 分钟内刚拉过的跳过，`force=true` 强制） |
 | POST | `/api/prices/backfill` | 补全自首笔交易以来的日线（只补缺失日） |
 | GET | `/api/benchmark?symbol=&start=` | 基准指数日线（1 小时缓存） |
 | GET | `/api/instruments/{id}/prices` | 单只标的已存日线 |
@@ -130,10 +145,11 @@ db         SQLite（默认零配置）/ PostgreSQL（DATABASE_URL 一键切换�
 cd backend
 python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 .venv/bin/uvicorn app.main:app --reload        # 数据库迁移启动时自动执行
-.venv/bin/python -m pytest tests/              # 31 个测试
+.venv/bin/python -m pytest tests/              # 47 个测试
 
 cd ../frontend
 npm install && npm run dev
+npm run lint                                   # ESLint（CI 里也会跑）
 ```
 
 ### 配置（环境变量）
@@ -143,15 +159,32 @@ npm install && npm run dev
 | `MARKET_PROVIDER` | `yfinance` | 主行情源；`eastmoney` 可切换。抓不到的标的按 `yfinance → eastmoney → sina（新浪）` 顺序自动补抓 |
 | `BASE_CURRENCY` | `HKD` | 本币 |
 | `DATABASE_URL` | 本地 SQLite | `postgresql+psycopg2://…` 切 Postgres |
-| `CORS_ORIGINS` | `*` | 前端跨域 |
+| `CORS_ORIGINS` | `*`（Docker 里为空） | 允许跨域的前端地址，逗号分隔；留空 = 只允许同源 |
+| `COST_METHOD` | `wac` | 默认成本口径：`wac` 加权平均 / `fifo` 先进先出 |
+| `QUOTE_TTL_SECONDS` | `300` | 行情多少秒内不重复拉取；`0` 关闭 |
+| `DEMO_MODE` | 空 | `true` = 只读在线演示（空库自动灌入虚构组合） |
 | `BASIC_AUTH_USER` / `BASIC_AUTH_PASS` | 空 | 设置后 `/api/*` 需要认证（health 除外） |
 | `YFINANCE_TIMEOUT` | `15` | yfinance 超时秒数 |
 
 ### 部署
 
+**Docker Compose（NAS / 家用服务器 / 云主机）**
+
 ```bash
-docker compose up --build
+docker compose up -d --build
+# 浏览器打开 http://<机器IP>:5173
 ```
+
+前端容器（nginx）把 `/api/` 反向代理到后端容器，浏览器只和一个地址打交道，所以在 NAS 或远程服务器上同样能用。数据存在 `duetfolio-data` 卷里。对外开放时建议在 `docker-compose.yml` 里打开 `BASIC_AUTH_USER` / `BASIC_AUTH_PASS`。
+
+**单容器**
+
+```bash
+docker build -t duetfolio .
+docker run -d -p 8000:8000 -v duetfolio-data:/data duetfolio
+```
+
+**在线演示（一键部署）**：点上方 Deploy to Render 按钮，用 `render.yaml` 在 Render 免费套餐上起一个只读演示（`DEMO_MODE=true`，每次启动自动灌入虚构组合并补齐行情）。免费实例闲置会休眠、没有持久磁盘，只适合演示；记自己的账请本地运行或挂载磁盘。
 
 ## 免责
 

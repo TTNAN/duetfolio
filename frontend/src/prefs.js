@@ -9,6 +9,8 @@ const DEFAULTS = {
   updown: lang0 === 'zh' ? 'cn' : 'intl',
   base: 'HKD',
   privacy: false,
+  // cost basis: 'wac' weighted average (HK/CN broker apps) | 'fifo' (US brokers)
+  costMethod: 'wac',
 };
 
 let prefs = { ...DEFAULTS };

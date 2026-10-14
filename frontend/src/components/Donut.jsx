@@ -32,7 +32,8 @@ export default function Donut({ items, center, centerLabel, privacy }) {
   return (
     <div className="alloc">
       <div className="alloc-donut">
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img"
+          aria-label={items.map((it) => `${it.label} ${((it.value / total) * 100).toFixed(1)}%`).join(', ')}>
           <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke="var(--surface-3)" strokeWidth={SW} opacity=".5" />
           {segs}
           <text x={size / 2} y={size / 2 + 4} textAnchor="middle" className="big">
@@ -48,6 +49,7 @@ export default function Donut({ items, center, centerLabel, privacy }) {
           const p = (it.value / total) * 100;
           return (
             <div key={it.label} className={`alloc-item ${hover != null && hover !== idx ? 'dim' : ''}`}
+              tabIndex={0} onFocus={() => setHover(idx)} onBlur={() => setHover(null)}
               onMouseEnter={() => setHover(idx)} onMouseLeave={() => setHover(null)}>
               <span className="dot" style={{ background: PALETTE[idx % PALETTE.length] }} />
               <span>{it.label}{it.sub && !privacy ? <span className="muted small"> · {it.sub}</span> : null}</span>

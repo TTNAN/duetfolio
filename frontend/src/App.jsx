@@ -105,6 +105,12 @@ export default function App() {
       </aside>
 
       <main className="main">
+        {health && health.demo && (
+          <div className="demo-banner" role="note">
+            <b>DEMO</b><span>{t.demoBanner}</span>
+            <a href="https://github.com/TTNAN/duetfolio" target="_blank" rel="noreferrer">GitHub →</a>
+          </div>
+        )}
         {page === 'dashboard' && <Dashboard reloadKey={reloadKey} reload={reload} go={go} openAdd={openAdd} provider={provider} />}
         {page === 'transactions' && <Transactions reloadKey={reloadKey} reload={reload} openAdd={openAdd} />}
         {page === 'instruments' && <Instruments reloadKey={reloadKey} reload={reload} openAdd={openAdd} />}
