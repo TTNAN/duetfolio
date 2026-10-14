@@ -230,7 +230,8 @@ def test_update_txn_oversell_rejected(db):
 
 
 def test_cash_flows_enter_xirr(db):
-    """Deposits are XIRR outflows (negative), withdrawals inflows."""
+    """Account perspective: deposits are the only outflows; terminal value is
+    positions + idle cash. (v0.1 also counted the buy -> money counted twice.)"""
     from datetime import date as d
     from app.models.models import CashFlow
     a = add_instrument(db, "AAA", "HKD", "HK")
@@ -240,8 +241,11 @@ def test_cash_flows_enter_xirr(db):
     add_price(db, a, 110.0, date=d(2026, 6, 1))
     s = pf.portfolio_summary(db, base="HKD")
     from app.services.xirr import xirr as calc
-    expect = calc([(d(2026, 1, 1), -10000.0), (d(2026, 1, 2), -1000.0), (d(2026, 6, 1), 1100.0)])
+    # 10 000 in; at the end 1 100 of stock + 9 000 cash left
+    expect = calc([(d(2026, 1, 1), -10000.0), (d(2026, 6, 1), 1100.0 + 9000.0)])
     assert s.xirr is not None and abs(s.xirr - expect) < 1e-4
+    assert s.cash_balance == 9000.0
+    assert s.xirr > 0  # +100 profit must never show a negative return
 
 
 def test_day_change_fields(db):

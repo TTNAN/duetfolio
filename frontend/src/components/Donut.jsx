@@ -1,50 +1,62 @@
-// Hand-rolled SVG donut: zero chart dependencies.
+// Hand-rolled SVG donut with hover highlight: zero chart dependencies.
+import { useState } from 'react';
 import { useLang } from '../i18n.js';
 
-const COLORS = ['#4f8cff', '#ff6b6b', '#51cf66', '#fcc419', '#9775fa', '#3bc9db', '#ff922b', '#e599f7'];
+export const PALETTE = Array.from({ length: 8 }, (_, i) => `var(--chart-${i + 1})`);
 
-export default function Donut({ items, subLabel }) {
+export default function Donut({ items, center, centerLabel, privacy }) {
   const { t } = useLang();
+  const [hover, setHover] = useState(null);
   const total = items.reduce((s, i) => s + i.value, 0);
-  if (!total) return <div className="donut-empty">{t.noValued}</div>;
+  if (!total) return <div className="chart-empty" style={{ height: 180 }}>{t.noValued}</div>;
 
-  const R = 70;
-  const C = 2 * Math.PI * R;
+  const size = 190, R = 78, SW = 14, C = 2 * Math.PI * R;
+  const gap = items.length > 1 ? 2.5 : 0;
   let acc = 0;
   const segs = items.map((it, idx) => {
     const frac = it.value / total;
-    const seg = (
-      <circle
-        key={it.label}
-        cx="90" cy="90" r={R} fill="none"
-        stroke={COLORS[idx % COLORS.length]}
-        strokeWidth="26"
-        strokeDasharray={`${(frac * C).toFixed(2)} ${C.toFixed(2)}`}
-        strokeDashoffset={(-acc * C).toFixed(2)}
-        transform="rotate(-90 90 90)"
-      />
+    const len = Math.max(0, frac * C - gap);
+    const el = (
+      <circle key={it.label} cx={size / 2} cy={size / 2} r={R} fill="none"
+        stroke={PALETTE[idx % PALETTE.length]} strokeWidth={hover === idx ? SW + 4 : SW}
+        strokeDasharray={`${len} ${C}`} strokeDashoffset={-acc * C}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        style={{ transition: 'stroke-width .15s', opacity: hover == null || hover === idx ? 1 : 0.35, cursor: 'default' }}
+        onMouseEnter={() => setHover(idx)} onMouseLeave={() => setHover(null)} />
     );
     acc += frac;
-    return seg;
+    return el;
   });
+  const h = hover != null ? items[hover] : null;
 
   return (
-    <div className="donut-wrap">
-      <svg width="180" height="180" viewBox="0 0 180 180">
-        <circle cx="90" cy="90" r={R} fill="none" stroke="var(--track)" strokeWidth="26" />
-        {segs}
-        <text x="90" y="86" textAnchor="middle" className="donut-total">{items.length}</text>
-        <text x="90" y="104" textAnchor="middle" className="donut-sub">{subLabel ?? t.positions}</text>
-      </svg>
-      <ul className="donut-legend">
-        {items.map((it, idx) => (
-          <li key={it.label}>
-            <span className="swatch" style={{ background: COLORS[idx % COLORS.length] }} />
-            {it.label}
-            <span className="pct">{((it.value / total) * 100).toFixed(1)}%</span>
-          </li>
-        ))}
-      </ul>
+    <div className="alloc">
+      <div className="alloc-donut">
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke="var(--surface-3)" strokeWidth={SW} opacity=".5" />
+          {segs}
+          <text x={size / 2} y={size / 2 + 4} textAnchor="middle" className="big">
+            {h ? `${((h.value / total) * 100).toFixed(1)}%` : center}
+          </text>
+          <text x={size / 2} y={size / 2 + 24} textAnchor="middle" className="lbl">
+            {h ? h.label : centerLabel}
+          </text>
+        </svg>
+      </div>
+      <div className="alloc-list">
+        {items.map((it, idx) => {
+          const p = (it.value / total) * 100;
+          return (
+            <div key={it.label} className={`alloc-item ${hover != null && hover !== idx ? 'dim' : ''}`}
+              onMouseEnter={() => setHover(idx)} onMouseLeave={() => setHover(null)}>
+              <span className="dot" style={{ background: PALETTE[idx % PALETTE.length] }} />
+              <span>{it.label}{it.sub && !privacy ? <span className="muted small"> · {it.sub}</span> : null}</span>
+              <span className="num text-2">{p.toFixed(1)}%</span>
+              <span className="bar"><b style={{ width: `${p}%`, background: PALETTE[idx % PALETTE.length] }} /></span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

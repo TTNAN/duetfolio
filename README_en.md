@@ -16,7 +16,19 @@ duetfolio is a portfolio tracker that runs on your own computer, built for peopl
 - USD and HKD holdings auto-converted into your base currency (HKD / USD / CNY)
 - Every buy, sell and dividend timestamped and sized into a true **annualized return (XIRR)** — not just "up a few percent"
 
-No sign-up, no data uploads. Your ledger lives in a local SQLite file. Dark/light mode toggle top-right.
+No sign-up, no data uploads. Your ledger lives in a local SQLite file.
+
+### New in v0.2
+
+- **Redesigned UI**: sidebar layout, serif headline figures, dark & light themes, mobile bottom nav, bundled fonts (works offline)
+- **Today's P&L** right under total assets
+- **Beat the market?** The Return view plots time-weighted return (unaffected by top-ups) against Nasdaq-100 / S&P 500 / Hang Seng / HS TECH
+- **One-click history backfill**: daily closes since your first trade, so the curve is there immediately
+- **Holding drawer**: price chart with buy/sell markers and per-position XIRR
+- **Red-up / green-up** color convention toggle, **privacy mode** for screenshots
+- **CSV export, full backup / restore**, shortcuts `N` add · `R` refresh · `1–4` pages
+
+![Return vs benchmark](assets/benchmark.png)
 
 ## 3-minute start (Windows)
 
@@ -74,7 +86,8 @@ db         SQLite (zero-config default) / PostgreSQL (via DATABASE_URL)
 ### Conventions
 
 - **Positions & cost**: average-cost method. Buys scale cost up proportionally, sells release it proportionally, cost hits exactly zero on full exit (never negative).
-- **XIRR**: pure-Python Newton solver (`backend/app/services/xirr.py`). Flows: buys (negative, incl. fees) / sells & dividends (positive, net of fees) / cash deposits (negative) / withdrawals (positive); terminal value dated at the **latest quote date**, not today (avoids annualization inflation). Returns null on <2 flows or single-signed flows — never forced.
+- **XIRR**: pure-Python Newton solver (`backend/app/services/xirr.py`). Without cash movements: buys (negative, incl. fees) / sells & dividends (positive, net of fees), terminal = position value. Once deposits/withdrawals are recorded it switches to the account view: only deposits (negative) / withdrawals (positive) are flows, terminal = positions + idle cash (v0.1 mixed both and counted the same money twice). Terminal dated at the **latest quote date**. Each holding also gets its own XIRR. Returns null on <2 flows or single-signed flows.
+- **Time-weighted return**: `r_d = (V_d + dividends_d) / (V_{d-1} + net_buys_d) − 1`, chained daily; benchmarks (SPY / QQQ / 2800.HK / 3033.HK) rebased to the first day of the range.
 - **FX**: each transaction captures the **trade-date** FX into `fx_to_hkd`; XIRR flows convert at that rate. Latest rates cached 10 min TTL.
 - **Missing-data circuit breaker**: if any holding lacks a quote or any currency lacks FX, totals and XIRR go null (with a banner naming the gaps) — no "partially trustworthy" numbers.
 
@@ -98,7 +111,12 @@ db         SQLite (zero-config default) / PostgreSQL (via DATABASE_URL)
 | POST | `/api/transactions/import` | confirm import (unknown tickers auto-created) |
 | GET/POST/DELETE | `/api/cash…` | deposits/withdrawals |
 | GET | `/api/portfolio/summary?base=` | totals, XIRR, dividends, holdings |
-| GET | `/api/portfolio/history?base=` | net-worth curve points |
+| GET | `/api/portfolio/history?base=` | curve points (value / cost / time-weighted return) |
+| POST | `/api/prices/backfill` | backfill daily closes since first trade (missing days only) |
+| GET | `/api/benchmark?symbol=&start=` | benchmark daily closes (1h cache) |
+| GET | `/api/instruments/{id}/prices` | stored daily closes for one instrument |
+| GET | `/api/transactions/export.csv` | export all transactions |
+| GET / POST | `/api/backup` · `/api/backup/restore` | full backup / validated restore |
 | POST | `/api/prices/refresh` | refresh all quotes (8-thread pool) |
 
 Interactive docs at `/docs` once the backend is running.
@@ -109,7 +127,7 @@ Interactive docs at `/docs` once the backend is running.
 cd backend
 python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 .venv/bin/uvicorn app.main:app --reload   # migrations run automatically on boot
-.venv/bin/python -m pytest tests/         # 24 tests
+.venv/bin/python -m pytest tests/         # 31 tests
 
 cd ../frontend
 npm install && npm run dev

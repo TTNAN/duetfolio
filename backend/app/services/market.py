@@ -48,6 +48,21 @@ def _http_get_json(url: str, timeout: int = HTTP_TIMEOUT) -> dict | None:
         return None
 
 
+def yahoo_ticker(symbol: str) -> str:
+    """App symbol -> the ticker Yahoo actually serves.
+
+    The app stores HK codes without leading zeros ("700.HK", "3152.HK"), but
+    Yahoo needs at least 4 digits: "0700.HK", "0005.HK". 4- and 5-digit codes
+    ("3152.HK", "9988.HK") are unchanged. Before this mapping, every HK code
+    below 1000 (Tencent, HSBC, China Mobile...) silently failed on Yahoo.
+    """
+    s = symbol.upper()
+    if s.endswith(".HK"):
+        code = s[:-3].lstrip("0") or "0"
+        return code.zfill(4) + ".HK"
+    return s
+
+
 class BaseProvider:
     name = "base"
 
@@ -75,7 +90,7 @@ class YFinanceProvider(BaseProvider):
         if yf is None:
             return None
         try:
-            hist = yf.Ticker(symbol).history(period="5d", timeout=config.YFINANCE_TIMEOUT)
+            hist = yf.Ticker(yahoo_ticker(symbol)).history(period="5d", timeout=config.YFINANCE_TIMEOUT)
             if hist is None or hist.empty:
                 return None
             last = hist.iloc[-1]
@@ -121,18 +136,30 @@ def _frankfurter_fx_to_hkd(currency: str) -> float | None:
 
 
 def _hist_close(ticker: str, d: date | None) -> float | None:
-    """Latest daily close on or before d; latest available when d is None."""
+    """Latest daily close on or before d; latest available when d is None.
+
+    The window is anchored on d (d-10 .. d+1) rather than "the last 3 months":
+    the old period="3mo" query silently returned None for any trade older than
+    ~90 days, so those trades fell back to today's FX.
+    """
     if yf is None:
         return None
     try:
-        hist = yf.Ticker(ticker).history(period="3mo", timeout=HTTP_TIMEOUT)
+        t = yf.Ticker(ticker)
+        if d is None:
+            hist = t.history(period="5d", timeout=HTTP_TIMEOUT)
+        else:
+            from datetime import timedelta
+            hist = t.history(start=(d - timedelta(days=10)).isoformat(),
+                             end=(d + timedelta(days=1)).isoformat(),
+                             timeout=HTTP_TIMEOUT)
         if hist is None or hist.empty:
             return None
         best = None
         for ts, row in hist.iterrows():
             if d is None or ts.date() <= d:
                 best = float(row["Close"])
-            elif d is not None:
+            else:
                 break
         return best
     except Exception:
@@ -394,6 +421,116 @@ def refresh_all(db: Session) -> dict:
     return {"provider": primary.name,
             "fallbacks": [p.name for p in chain[1:]],
             "updated": updated, "failed": failed}
+
+
+# ---- daily history (backfill + benchmarks) ----
+def _yf_daily(symbol: str, start: date) -> list[tuple[date, float]]:
+    if yf is None:
+        return []
+    try:
+        hist = yf.Ticker(yahoo_ticker(symbol)).history(start=start.isoformat(), interval="1d",
+                                         auto_adjust=False,
+                                         timeout=config.YFINANCE_TIMEOUT)
+        if hist is None or hist.empty:
+            return []
+        return [(ts.date(), float(row["Close"])) for ts, row in hist.iterrows()
+                if row["Close"] == row["Close"]]  # drop NaN
+    except Exception:
+        return []
+
+
+def _eastmoney_daily(symbol: str, start: date) -> list[tuple[date, float]]:
+    """East Money push2his daily kline (unadjusted). Best-effort fallback for
+    networks where Yahoo is blocked; kline prices are in real units."""
+    secid = EastMoneyProvider()._secid(symbol)
+    if not secid:
+        return []
+    url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=" + secid
+           + "&fields1=f1,f2,f3&fields2=f51,f53&klt=101&fqt=0&beg="
+           + start.strftime("%Y%m%d") + "&end=20500101")
+    data = _http_get_json(url) or {}
+    out = []
+    for line in ((data.get("data") or {}).get("klines") or []):
+        try:
+            d_s, c_s = line.split(",")[:2]
+            out.append((date.fromisoformat(d_s), float(c_s)))
+        except Exception:
+            continue
+    return out
+
+
+def fetch_daily_history(symbol: str, start: date) -> tuple[list[tuple[date, float]], str | None]:
+    """Daily closes from `start` to today. Yahoo first, East Money fallback."""
+    rows = _yf_daily(symbol, start)
+    if rows:
+        return rows, "yfinance"
+    rows = _eastmoney_daily(symbol, start)
+    if rows:
+        return rows, "eastmoney"
+    return [], None
+
+
+def backfill_history(db: Session) -> dict:
+    """Fill daily closes from each instrument's first trade date to today.
+
+    Only INSERTS missing dates — existing snapshots (live quotes with
+    prev_close / fetched_at) are never overwritten. Lets the net-worth curve
+    show real history immediately instead of "refresh a few times".
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import func
+
+    from app.models.models import Transaction
+
+    firsts = dict(db.query(Transaction.instrument_id, func.min(Transaction.date))
+                  .group_by(Transaction.instrument_id).all())
+    instruments = [i for i in db.query(Instrument).all() if i.id in firsts]
+
+    def _fetch(inst):
+        rows, src = fetch_daily_history(inst.symbol, firsts[inst.id])
+        return inst, rows, src
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        results = list(ex.map(_fetch, instruments))
+
+    filled, failed, inserted = [], [], 0
+    for inst, rows, src in results:
+        if not rows:
+            failed.append(inst.symbol)
+            continue
+        have = {d for (d,) in db.query(PriceSnapshot.date)
+                .filter_by(instrument_id=inst.id).all()}
+        for d_, close in rows:
+            if d_ in have:
+                continue
+            db.add(PriceSnapshot(instrument_id=inst.id, date=d_, close=close,
+                                 source=f"{src}-hist"))
+            have.add(d_)
+            inserted += 1
+        filled.append(inst.symbol)
+    db.commit()
+    return {"filled": filled, "failed": failed, "inserted": inserted}
+
+
+_BENCH_CACHE: dict[tuple, tuple[float, list]] = {}
+BENCHMARKS = {
+    "SPY": "S&P 500 (SPY)",
+    "QQQ": "Nasdaq-100 (QQQ)",
+    "2800.HK": "Hang Seng (2800.HK)",
+    "3033.HK": "HS TECH (3033.HK)",
+}
+
+
+def benchmark_series(symbol: str, start: date) -> tuple[list[tuple[date, float]], str | None]:
+    """Daily closes of a benchmark, cached 1 hour per (symbol, start)."""
+    key = (symbol, start.isoformat())
+    now = time.monotonic()
+    if key in _BENCH_CACHE and now - _BENCH_CACHE[key][0] < 3600:
+        return _BENCH_CACHE[key][1]
+    res = fetch_daily_history(symbol, start)
+    if res[0]:
+        _BENCH_CACHE[key] = (now, res)
+    return res
 
 
 # ---- symbol search (for the "add instrument" flow) ----

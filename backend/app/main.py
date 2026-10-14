@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="duetfolio", version="0.1.0",
+app = FastAPI(title="duetfolio", version="0.2.0",
               description="Dual-market (US+HK) portfolio tracker API",
               lifespan=lifespan)
 app.add_middleware(

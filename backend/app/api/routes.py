@@ -1,16 +1,22 @@
 """REST API: instruments, transactions, portfolio, price refresh."""
 from datetime import date as date_cls
 
+import csv
+import io
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app import config
 from app.database import get_db
-from app.models.models import CashFlow, Instrument, Transaction
+from app.models.models import CashFlow, Instrument, PriceSnapshot, Transaction
 from app.schemas.schemas import (
-    CashFlowCreate, CashFlowOut, HistoryPoint, HoldingOut, InstrumentCandidate,
-    InstrumentCreate, InstrumentOut, PortfolioSummary, TransactionCreate,
-    TransactionOut, TransactionUpdate,
+    BenchmarkOut, BenchmarkPoint, CashFlowCreate, CashFlowOut, HistoryPoint,
+    HoldingOut, InstrumentCandidate, InstrumentCreate, InstrumentOut,
+    InstrumentUpdate, PortfolioSummary, TransactionCreate, TransactionOut,
+    TransactionUpdate,
 )
 from app.services import market
 from app.services.csvimport import parse_csv
@@ -21,7 +27,7 @@ router = APIRouter()
 
 @router.get("/health")
 def health():
-    return {"ok": True, "base_currency": config.BASE_CURRENCY,
+    return {"ok": True, "version": "0.2.0", "base_currency": config.BASE_CURRENCY,
             "market_provider": config.MARKET_PROVIDER}
 
 
@@ -48,6 +54,32 @@ def create_instrument(body: InstrumentCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(inst)
     return inst
+
+
+@router.patch("/instruments/{instrument_id}", response_model=InstrumentOut)
+def update_instrument(instrument_id: int, body: InstrumentUpdate,
+                      db: Session = Depends(get_db)):
+    inst = db.get(Instrument, instrument_id)
+    if not inst:
+        raise HTTPException(404, "Instrument not found")
+    for field in ("name", "asset_type"):
+        v = getattr(body, field)
+        if v is not None:
+            setattr(inst, field, v)
+    db.commit()
+    db.refresh(inst)
+    return inst
+
+
+@router.get("/instruments/{instrument_id}/prices")
+def instrument_prices(instrument_id: int, db: Session = Depends(get_db)):
+    """Stored daily closes for one instrument (for the holding drawer chart)."""
+    if not db.get(Instrument, instrument_id):
+        raise HTTPException(404, "Instrument not found")
+    rows = (db.query(PriceSnapshot.date, PriceSnapshot.close)
+            .filter_by(instrument_id=instrument_id)
+            .order_by(PriceSnapshot.date).all())
+    return [{"date": d_.isoformat(), "close": c} for d_, c in rows]
 
 
 @router.delete("/instruments/{instrument_id}", status_code=204)
@@ -160,6 +192,27 @@ def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Transaction not found")
     db.delete(t)
     db.commit()
+
+
+@router.get("/transactions/export.csv")
+def export_transactions_csv(db: Session = Depends(get_db)):
+    """All transactions as CSV (re-importable through the generic importer)."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["date", "symbol", "name", "market", "currency", "side",
+                "quantity", "price", "fee", "fx_to_hkd", "note"])
+    rows = (db.query(Transaction, Instrument)
+            .join(Instrument, Transaction.instrument_id == Instrument.id)
+            .order_by(Transaction.date, Transaction.id).all())
+    for t, i in rows:
+        w.writerow([t.date.isoformat(), i.symbol, i.name, i.market, i.currency,
+                    t.type, t.quantity, t.price, t.fee,
+                    t.fx_to_hkd if t.fx_to_hkd is not None else "", t.note or ""])
+    return Response(
+        content="\ufeff" + buf.getvalue(),  # BOM so Excel opens UTF-8 correctly
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="duetfolio-transactions.csv"'},
+    )
 
 
 # ---- broker CSV import ----
@@ -276,3 +329,108 @@ def delete_cash(cash_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Cash flow not found")
     db.delete(cf)
     db.commit()
+
+
+@router.post("/prices/backfill")
+def backfill_prices(db: Session = Depends(get_db)):
+    """Fill daily closes since each instrument's first trade (missing days only)."""
+    return market.backfill_history(db)
+
+
+@router.get("/benchmark", response_model=BenchmarkOut)
+def get_benchmark(
+    symbol: str = Query(..., max_length=16),
+    start: date_cls = Query(...),
+):
+    """Daily closes of an index ETF, for the return-vs-benchmark chart.
+    Returns an empty list (not an error) when every source is unreachable."""
+    if symbol not in market.BENCHMARKS:
+        raise HTTPException(400, f"Unsupported benchmark {symbol}")
+    rows, src = market.benchmark_series(symbol, start)
+    return BenchmarkOut(symbol=symbol, name=market.BENCHMARKS[symbol], source=src,
+                        points=[BenchmarkPoint(date=d, close=round(c, 4)) for d, c in rows])
+
+
+@router.get("/benchmarks")
+def list_benchmarks():
+    return [{"symbol": k, "name": v} for k, v in market.BENCHMARKS.items()]
+
+
+# ---- full backup / restore ----
+BACKUP_VERSION = 1
+
+
+@router.get("/backup")
+def export_backup(db: Session = Depends(get_db)):
+    """Everything needed to rebuild the ledger, as one JSON file.
+    Price snapshots are a cache and are left out (refresh/backfill rebuilds them)."""
+    insts = db.query(Instrument).order_by(Instrument.id).all()
+    payload = {
+        "app": "duetfolio",
+        "version": BACKUP_VERSION,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "instruments": [
+            {"symbol": i.symbol, "name": i.name, "market": i.market,
+             "currency": i.currency, "asset_type": i.asset_type}
+            for i in insts],
+        "transactions": [
+            {"symbol": i.symbol, "type": t.type, "quantity": t.quantity,
+             "price": t.price, "fee": t.fee, "date": t.date.isoformat(),
+             "note": t.note or "", "fx_to_hkd": t.fx_to_hkd}
+            for i in insts for t in sorted(i.transactions, key=lambda x: (x.date, x.id))],
+        "cash_flows": [
+            {"date": c.date.isoformat(), "direction": c.direction,
+             "amount": c.amount, "currency": c.currency, "note": c.note or ""}
+            for c in db.query(CashFlow).order_by(CashFlow.date, CashFlow.id).all()],
+    }
+    import json
+    stamp = datetime.now().strftime("%Y%m%d")
+    return Response(
+        content=json.dumps(payload, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="duetfolio-backup-{stamp}.json"'},
+    )
+
+
+@router.post("/backup/restore")
+async def restore_backup(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Replace the whole ledger with a backup file. Validates before deleting."""
+    import json
+    raw = await file.read()
+    try:
+        data = json.loads(raw.decode("utf-8-sig"))
+        assert data.get("app") == "duetfolio"
+        insts = data["instruments"]
+        txns = data["transactions"]
+        cash = data.get("cash_flows") or []
+        syms = {i["symbol"] for i in insts}
+        for t in txns:
+            assert t["symbol"] in syms and t["type"] in ("buy", "sell", "dividend")
+            date_cls.fromisoformat(t["date"])
+            float(t["quantity"]), float(t["price"])
+    except Exception:
+        raise HTTPException(400, "Not a valid duetfolio backup file")
+    db.query(PriceSnapshot).delete()
+    db.query(Transaction).delete()
+    db.query(Instrument).delete()
+    db.query(CashFlow).delete()
+    db.flush()
+    by_sym = {}
+    for i in insts:
+        obj = Instrument(symbol=i["symbol"], name=i.get("name") or i["symbol"],
+                         market=i.get("market", "US"), currency=i.get("currency", "USD"),
+                         asset_type=i.get("asset_type", "stock"))
+        db.add(obj)
+        by_sym[i["symbol"]] = obj
+    db.flush()
+    for t in txns:
+        db.add(Transaction(instrument_id=by_sym[t["symbol"]].id, type=t["type"],
+                           quantity=float(t["quantity"]), price=float(t["price"]),
+                           fee=float(t.get("fee") or 0), date=date_cls.fromisoformat(t["date"]),
+                           note=t.get("note") or "", fx_to_hkd=t.get("fx_to_hkd")))
+    for c in cash:
+        db.add(CashFlow(date=date_cls.fromisoformat(c["date"]), direction=c["direction"],
+                        amount=float(c["amount"]), currency=c.get("currency", "HKD"),
+                        note=c.get("note") or ""))
+    db.commit()
+    return {"instruments": len(insts), "transactions": len(txns), "cash_flows": len(cash)}

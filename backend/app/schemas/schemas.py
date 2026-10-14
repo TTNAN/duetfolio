@@ -84,6 +84,8 @@ class HoldingOut(BaseModel):
     day_change_pct: Optional[float] = None   # e.g. 0.012 = +1.2%
     day_change_base: Optional[float] = None  # day P&L on the position, base ccy
     weight_pct: Optional[float] = None       # share of total_value, e.g. 23.2
+    unrealized_pnl_pct: Optional[float] = None  # unrealized / remaining cost
+    xirr: Optional[float] = None             # this position's own annualized return
 
 
 class PortfolioSummary(BaseModel):
@@ -101,11 +103,33 @@ class PortfolioSummary(BaseModel):
     quotes_as_of: Optional[datetime] = None  # when quotes were last fetched
     quotes_source: Optional[str] = None      # provider name, e.g. yfinance
     dividends_12m: Optional[float] = None    # dividends, trailing 12 months, base ccy
+    day_pnl: Optional[float] = None          # sum of today's position P&L, base ccy
+    cash_balance: Optional[float] = None     # idle cash, only when cash flows are recorded
+    day_pnl_pct: Optional[float] = None      # day_pnl / yesterday's value
 
 
 class HistoryPoint(BaseModel):
     date: date
     value: Optional[float] = None  # None when FX gaps make this day unconvertible
+    cost: Optional[float] = None   # remaining cost basis that day (average cost)
+    twr: Optional[float] = None    # cumulative time-weighted return, 0.12 = +12%
+
+
+class BenchmarkPoint(BaseModel):
+    date: date
+    close: float
+
+
+class BenchmarkOut(BaseModel):
+    symbol: str
+    name: str
+    source: Optional[str] = None
+    points: list[BenchmarkPoint]
+
+
+class InstrumentUpdate(BaseModel):
+    name: Optional[str] = None
+    asset_type: Optional[Literal["stock", "etf", "fund"]] = None
 
 
 class InstrumentCandidate(BaseModel):
