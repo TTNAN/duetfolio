@@ -15,3 +15,6 @@ frontend/dist/
 
 # OS
 .DS_Store
+
+# static demo snapshot (generated in CI)
+frontend/public/demo/

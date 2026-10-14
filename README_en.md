@@ -3,7 +3,7 @@
 # duetfolio ◈
 
 [![test](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml/badge.svg)](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/TTNAN/duetfolio)
+[![Live demo](https://img.shields.io/badge/live%20demo-no%20sign--in-b89a6a)](https://ttnan.github.io/duetfolio/)
 
 **Holding both US and HK stocks? One glance tells you the total P&L in your home currency.**
 
@@ -30,7 +30,7 @@ No sign-up, no data uploads. Your ledger lives in a local SQLite file.
 - **Faster**: portfolio results are cached per data version (recomputed only when data changes); quotes fetched in the last 5 minutes aren't re-fetched, even across restarts
 - **Sturdier XIRR**: frequent large, alternating flows converge (Brent's method takes over when Newton stalls)
 - **Keyboard & mobile**: Esc closes dialogs, focus stays inside them, arrow keys step through chart days; wide tables scroll sideways on phones with the symbol column pinned
-- **Live demo mode**: `DEMO_MODE=true` serves a read-only fictional portfolio, wired to the Deploy button
+- **Live demo**: [ttnan.github.io/duetfolio](https://ttnan.github.io/duetfolio/) opens instantly, no sign-in (fictional, read-only portfolio; prices refreshed every trading day)
 
 ### New in v0.2
 
@@ -181,7 +181,9 @@ docker build -t duetfolio .
 docker run -d -p 8000:8000 -v duetfolio-data:/data duetfolio
 ```
 
-**Live demo (one click)**: the Deploy to Render button uses `render.yaml` to start a read-only demo on Render's free plan (`DEMO_MODE=true`; a fictional portfolio is seeded and its prices back-filled on every start). Free instances sleep when idle and have no persistent disk — demo only.
+**Live demo**: [ttnan.github.io/duetfolio](https://ttnan.github.io/duetfolio/) is built by GitHub Actions (`.github/workflows/pages.yml`): it seeds a fictional portfolio, pulls real prices, snapshots the API into static JSON and publishes the UI in read-only static mode to GitHub Pages, rebuilt after every US close. In a fork, set Settings → Pages → Source to GitHub Actions to get your own.
+
+For a demo with a live backend you can still deploy `render.yaml` on Render (`DEMO_MODE=true`; free instances sleep and have no persistent disk — demo only).
 
 ## Disclaimer
 

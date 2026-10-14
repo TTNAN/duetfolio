@@ -3,7 +3,7 @@
 # duetfolio ◈
 
 [![test](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml/badge.svg)](https://github.com/TTNAN/duetfolio/actions/workflows/test.yml)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/TTNAN/duetfolio)
+[![在线演示](https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E6%BC%94%E7%A4%BA-%E5%85%8D%E7%99%BB%E5%BD%95-b89a6a)](https://ttnan.github.io/duetfolio/)
 
 **美股港股一起买？每天打开看一眼，就知道按港币算一共赚了多少。**
 
@@ -30,7 +30,7 @@ duetfolio 是一个跑在你自己电脑上的组合记账本，专门给**同�
 - **更快**：组合计算结果按数据版本缓存，数据没变不重复计算；行情 5 分钟内刚拉过不重复请求（重启后依然有效）
 - **XIRR 更稳**：频繁大额进出、正负交替的现金流也能算出结果（牛顿法不收敛时自动切换 Brent 区间求解）
 - **键盘与手机体验**：弹窗 Esc 关闭、焦点不跑出弹窗、图表可用方向键查看每日数值；手机上宽表格横向滑动时首列固定
-- **在线演示模式**：`DEMO_MODE=true` 启动即为只读演示（虚构组合），配合一键部署按钮
+- **在线演示**：[ttnan.github.io/duetfolio](https://ttnan.github.io/duetfolio/) 点开即用、无需登录（虚构组合、只读，行情每个交易日自动更新）
 
 ### v0.2 新增
 
@@ -184,7 +184,9 @@ docker build -t duetfolio .
 docker run -d -p 8000:8000 -v duetfolio-data:/data duetfolio
 ```
 
-**在线演示（一键部署）**：点上方 Deploy to Render 按钮，用 `render.yaml` 在 Render 免费套餐上起一个只读演示（`DEMO_MODE=true`，每次启动自动灌入虚构组合并补齐行情）。免费实例闲置会休眠、没有持久磁盘，只适合演示；记自己的账请本地运行或挂载磁盘。
+**在线演示**：[ttnan.github.io/duetfolio](https://ttnan.github.io/duetfolio/) 由 GitHub Actions（`.github/workflows/pages.yml`）构建：用虚构组合拉取真实行情，生成静态数据，前端以只读静态模式发布到 GitHub Pages，美股收盘后每个交易日自动重建。Fork 后在 Settings → Pages 把 Source 设为 GitHub Actions，即可得到自己的演示站。
+
+如需带后端的演示，也可以用 `render.yaml` 在 Render 上部署（`DEMO_MODE=true`；免费实例闲置会休眠、没有持久磁盘，只适合演示）。
 
 ## 免责
 

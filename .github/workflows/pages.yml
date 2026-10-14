@@ -1,0 +1,64 @@
+# Live demo on GitHub Pages: no server, no sign-in.
+# Seeds the fictional showcase portfolio, pulls real prices, snapshots every
+# read endpoint into static JSON and ships the UI in read-only static mode.
+# Re-runs every weekday after the US close so the demo's prices stay current.
+#
+# One-time setup: Settings → Pages → Build and deployment → Source: GitHub Actions
+name: demo-pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "30 22 * * 1-5"   # 22:30 UTC = after the US close
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - name: Snapshot demo data
+        run: |
+          pip install -r backend/requirements.lock -r backend/requirements-dev.txt
+          python scripts/build_static_demo.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build static UI
+        working-directory: frontend
+        env:
+          VITE_STATIC_DEMO: "true"
+          VITE_BASE: /${{ github.event.repository.name }}/
+        run: |
+          npm ci
+          npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

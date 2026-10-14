@@ -22,7 +22,52 @@ function cleanError(status, text) {
   return `${status} ${text.slice(0, 160)}`;
 }
 
+// Static demo build (GitHub Pages): no backend. GET requests are answered
+// from a JSON snapshot generated in CI (scripts/build_static_demo.py);
+// writes are refused like the server's read-only demo mode.
+const STATIC = import.meta.env.VITE_STATIC_DEMO === 'true';
+const STATIC_ROOT = import.meta.env.BASE_URL + 'demo/';
+let snapshot;
+const loadSnapshot = () => (snapshot ||= fetch(STATIC_ROOT + 'data.json').then((r) => {
+  if (!r.ok) throw new ApiError(r.status, 'Demo data missing');
+  return r.json();
+}));
+
+async function staticReq(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  const [p, qs = ''] = path.split('?');
+  const params = new URLSearchParams(qs);
+  if (method !== 'GET') {
+    if (p === '/prices/refresh') {
+      const d = await loadSnapshot();
+      return { updated: [], fresh: d['/instruments'].map((i) => i.symbol), failed: [] };
+    }
+    if (p === '/prices/backfill') return { inserted: 0, failed: [] };
+    throw new ApiError(403, '演示模式是只读的 · The demo is read-only');
+  }
+  const d = await loadSnapshot();
+  if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  if (p === '/portfolio/summary' || p === '/portfolio/history') {
+    const key = `${p}?base=${params.get('base') || 'HKD'}&method=${params.get('method') || 'wac'}`;
+    return structuredClone(d[key]);
+  }
+  if (p === '/benchmark') {
+    const b = d[`/benchmark?symbol=${params.get('symbol')}`];
+    if (!b) throw new ApiError(400, 'Unsupported benchmark');
+    const start = params.get('start') || '';
+    return { ...b, points: b.points.filter((x) => x.date >= start) };
+  }
+  if (p === '/transactions') {
+    const id = params.get('instrument_id');
+    return d['/transactions'].filter((x) => !id || String(x.instrument_id) === id);
+  }
+  if (p === '/instruments/search') return [];
+  if (p in d) return structuredClone(d[p]);
+  throw new ApiError(404, `Not in demo snapshot: ${p}`);
+}
+
 async function req(path, opts = {}) {
+  if (STATIC) return staticReq(path, opts);
   let res;
   try {
     res = await fetch(BASE + path, {
@@ -78,6 +123,6 @@ export const api = {
   refreshPrices: (force = false) => req(`/prices/refresh${force ? '?force=true' : ''}`, { method: 'POST' }),
   backfill: () => req('/prices/backfill', { method: 'POST' }),
   restoreBackup: (file) => upload('/backup/restore', file),
-  backupUrl: () => BASE + '/backup',
-  exportCsvUrl: () => BASE + '/transactions/export.csv',
+  backupUrl: () => (STATIC ? STATIC_ROOT + 'backup.json' : BASE + '/backup'),
+  exportCsvUrl: () => (STATIC ? STATIC_ROOT + 'transactions.csv' : BASE + '/transactions/export.csv'),
 };
