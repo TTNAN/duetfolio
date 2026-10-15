@@ -186,3 +186,27 @@ def test_broker_param_on_preview(client):  # noqa: F811
                     files={"file": ("t.csv", csv_, "text/csv")})
     assert r.status_code == 200 and r.json()["format"] == "generic"
     assert r.json()["rows"][0]["status"] == "ok"
+
+
+# ---------- bad quotes (Yahoo NaN bar) ----------
+def test_refresh_ignores_nan_quote(db, monkeypatch):
+    a = add_instrument(db, "AAA", "USD")
+    b = add_instrument(db, "BBB", "USD")
+
+    class P(mk.BaseProvider):
+        name = "fake"
+
+        def fetch_close(self, symbol):
+            if symbol == "AAA":
+                return (d.today(), float("nan"), 100.0)
+            return (d.today(), 2.0, float("nan"))
+
+    monkeypatch.setattr(mk, "get_provider", lambda: P())
+    monkeypatch.setattr(mk, "YFinanceProvider", P)
+    monkeypatch.setattr(mk, "EastMoneyProvider", P)
+    monkeypatch.setattr(mk, "SinaProvider", P)
+    r = mk.refresh_all(db, force=True)
+    assert r["failed"] == ["AAA"] and r["updated"] == ["BBB"]
+    snap = db.query(PriceSnapshot).filter_by(instrument_id=b.id).one()
+    assert snap.close == 2.0 and snap.prev_close is None
+    assert db.query(PriceSnapshot).filter_by(instrument_id=a.id).count() == 0

@@ -19,6 +19,7 @@ each quote.
   where Yahoo is blocked. Thinner fields; last resort.
 """
 import json
+import math
 import re
 import time
 import urllib.parse
@@ -94,6 +95,11 @@ class YFinanceProvider(BaseProvider):
             hist = yf.Ticker(yahoo_ticker(symbol)).history(period="5d", timeout=config.YFINANCE_TIMEOUT)
             if hist is None or hist.empty:
                 return None
+            # Yahoo sometimes returns today's bar with a NaN close (session
+            # just opened / halted). Drop those rows, never store NaN.
+            hist = hist[hist["Close"].notna()]
+            if hist.empty:
+                return None
             last = hist.iloc[-1]
             prev = float(hist.iloc[-2]["Close"]) if len(hist) >= 2 else None
             return hist.index[-1].date(), float(last["Close"]), prev
@@ -158,6 +164,8 @@ def _hist_close(ticker: str, d: date | None) -> float | None:
             return None
         best = None
         for ts, row in hist.iterrows():
+            if row["Close"] != row["Close"]:  # NaN bar
+                continue
             if d is None or ts.date() <= d:
                 best = float(row["Close"])
             else:
@@ -426,6 +434,11 @@ def refresh_all(db: Session, force: bool = False) -> dict:
             failed.append(inst.symbol)
             continue
         d, close, prev_close = res[0], res[1], res[2] if len(res) > 2 else None
+        if not _finite_positive(close):
+            failed.append(inst.symbol)  # bad quote: keep yesterday's price
+            continue
+        if not _finite_positive(prev_close):
+            prev_close = None
         snap = (
             db.query(PriceSnapshot)
             .filter_by(instrument_id=inst.id, date=d)
@@ -445,6 +458,13 @@ def refresh_all(db: Session, force: bool = False) -> dict:
     return {"provider": primary.name,
             "fallbacks": [p.name for p in chain[1:]],
             "updated": updated, "failed": failed, "fresh": fresh}
+
+
+def _finite_positive(x) -> bool:
+    try:
+        return x is not None and math.isfinite(float(x)) and float(x) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 # ---- daily history (backfill + benchmarks) ----
