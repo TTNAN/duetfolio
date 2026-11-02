@@ -197,6 +197,6 @@ MIT
 
 If this project saved you some time, coffee is welcome. ☕
 
-| WeChat Pay |
+| WeChat Reward |
 | ---------- |
-| ![WeChat Pay QR](assets/wechat-pay.png) |
+| ![WeChat Reward QR](assets/wechat-pay.png) |
