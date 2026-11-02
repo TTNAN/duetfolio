@@ -197,6 +197,6 @@ MIT
 
 If this project saved you some time, coffee is welcome. ☕
 
-| Alipay | WeChat Pay |
-| ------ | ---------- |
-| ![Alipay QR](assets/alipay.jpg) | ![WeChat Pay QR](assets/wechat-pay.png) |
+| WeChat Pay |
+| ---------- |
+| ![WeChat Pay QR](assets/wechat-pay.png) |
